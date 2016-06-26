@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE erlref SYSTEM "erlref.dtd">
+
+<erlref>
+  <header>
+    <copyright>
+      <year>2005</year>
+      <year>2013</year>
+      <holder>Ericsson AB, All Rights Reserved</holder>
+    </copyright>
+    <legalnotice>
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ 
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+  The Initial Developer of the Original Code is Ericsson AB.
+    </legalnotice>
+
+    <title>erl_expand_records</title>
+    <prepared>Hans Bolinder</prepared>
+    <responsible>nobody</responsible>
+    <docno></docno>
+    <approved>nobody</approved>
+    <checked>no</checked>
+    <date>2005-12-23</date>
+    <rev>PA1</rev>
+    <file>erl_expand_records.sgml</file>
+  </header>
+  <module>erl_expand_records</module>
+  <modulesummary>Expands Records in a Module</modulesummary>
+  <description>
+  </description>
+  <funcs>
+    <func>
+      <name name="module" arity="2"/>
+      <fsummary>Expand all records in a module</fsummary>
+      <desc>
+        <p>Expands all records in a module. The returned module has no
+          references to records, neither attributes nor code.</p>
+      </desc>
+    </func>
+  </funcs>
+
+  <section>
+    <title>See Also</title>
+    <p>The <seealso marker="erts:absform">abstract format</seealso>
+      documentation in ERTS User's Guide</p>
+  </section>
+</erlref>
+
