@@ -781,6 +781,8 @@ function_state({fun_sig, _, _, _}, St) ->
     St;
 function_state({type_alias, _, _, _}, St) ->
     St;
+function_state({type_cons, _, _, _, _}, St) ->
+    St;
 function_state({attribute,La,Attr,_Val}, St) ->
     add_error(La, {attribute,Attr}, St);
 function_state({function,L,N,A,Cs}, St) ->

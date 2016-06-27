@@ -6,6 +6,7 @@
 
 -record(state, { fun_sigs      = dict:new()
                , type_aliases  = dict:new()
+               , type_cons     = dict:new()
                , declared_fun  = dict:new()
                , type_used     = gb_sets:new()
                , type_used_loc = dict:new()
@@ -27,8 +28,9 @@ run_passes([P | Ps], Fs, Fn, Opts, Ws0) ->
   catch
     _:{error, L, Desc} -> {error, [{Fn, [{L, ?TYPE_MSG, Desc}]}], []};
     _:L when is_list(L) -> {error, L, []};
-    _:Err -> io:format("Something bad happened, type system apologizes: ~p~n"
-                    , [Err])
+    EE:Err ->
+      io:format("Something bad happened, type system apologizes: ~p:~p~n"
+               , [EE, Err])
   end;
 run_passes([], _, _, _, Ws) ->
   {ok, Ws}.
@@ -39,12 +41,13 @@ standard_passes() ->
 type_lint(Forms, FileName, _Opts) ->
   io:format("~p~n", [Forms]),
   St = collect_types(Forms, #state{}),
-  match_fun_sig_with_declared_fun(St),
+  check_consistency_type_cons(St),
   Ws1 = check_unsued_user_defined_types(FileName, St),
   check_undefined_types(FileName, St),
+  match_fun_sig_with_declared_fun(St),
   %% TODO: checks for generic types
   %% - RHS usage
-  %% - Expressions with generic types
+  %% - Type expansion: type instances, type aliases
   {ok, Ws1}.
 
 
@@ -55,6 +58,8 @@ collect_types([{fun_sig, L, _, T} = Form | Forms], St0) ->
 collect_types([{type_alias, L, _, T} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(T, L, St0),
   collect_types(Forms, add_type_alias(Form, St1));
+collect_types([{type_cons, _, _, _, _} = Form | Forms], St0) ->
+  collect_types(Forms, add_type_cons(Form, St0));
 collect_types([{function, _L, _N, _A, Cls} = F | Forms], St0) ->
   St1 = collect_types(Cls, St0),
   collect_types(Forms, add_declared_fun(F, St1));
@@ -69,6 +74,8 @@ collect_types([_ | Forms], St) ->
 collect_types([], St) ->
   St.
 
+%% Extract user defined types given at line L and associate each one with
+%% line L in the returned state.type_used_loc.
 extract_user_defined_types_with_locs(T, L, St) ->
   Ts = extract_user_defined_types(T),
   Locs = generate_locs_for_types(Ts, L),
@@ -174,34 +181,88 @@ add_type_alias({type_alias, L2, N, _} = F, St=#state{type_aliases = TA}) ->
       St#state{type_aliases = dict:store(N, F, TA)}
   end.
 
+%% Adds a new type constructor to state record or throws an exception if this
+%% type cons is already defined by another type cons or type alias.
+add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{ type_cons = TC
+                                                     , type_aliases = TA}) ->
+  case dict:find(N, TC) of
+    {ok, {_, L1, _, _, _}} ->
+      throw({error, L2, {duplicate_type_cons_decl, N, L1, L2}});
+    error ->
+      case dict:find(N, TA) of
+        {ok, {_, L3, _, _, _}} ->
+          throw({error, L2, {duplicate_type_cons_decl, N, L2, L3}});
+        error ->
+          St#state{type_cons = dict:store(N, F, TC)}
+      end
+  end.
+
 add_declared_fun({function, _, N, _, _} = F, St=#state{declared_fun = DF}) ->
   St#state{declared_fun = dict:append(N, F, DF)}.
+
+check_consistency_type_cons(#state{type_cons = TC}) ->
+  [check_consistency_type_cons0(E1) || {_, E1} <- dict:to_list(TC)].
+
+%% Check if that all defined generic type parameters in the left hand side of
+%% type constructor is used in the right hand side.
+check_consistency_type_cons0({type_cons, L, _N, Is, O}) ->
+  GTI = lists:flatten([extract_generic_types(I) || I <- Is]),
+  GTO = extract_generic_types(O),
+  lists:foreach(fun(T) ->
+                    case lists:member(T, GTO) of
+                      false ->
+                        throw({error, L, {tc_generic_type_not_used_rhs, T}});
+                      true ->
+                        ok
+                    end
+                end, GTI).
 
 fun_arity({fun_sig, _, _, {fun_type, I, _}}) ->
   length(I).
 
-extract_user_defined_types({fun_type, Is, O}) ->
-  lists:flatten([extract_user_defined_types(I) || I <- Is])
-    ++ extract_user_defined_types(O);
-extract_user_defined_types({terl_user_defined, T}) ->
-  [T];
-extract_user_defined_types({union_type, Ts}) ->
-  lists:flatten([extract_user_defined_types(T) || T <- Ts]);
-extract_user_defined_types({list_type, T}) ->
-  extract_user_defined_types(T);
-extract_user_defined_types({tuple_type, Ts}) ->
-  lists:flatten([extract_user_defined_types(T) || T <- Ts]);
-extract_user_defined_types({record_type, _, Ts}) ->
-  lists:flatten([extract_user_defined_types(T) || T <- Ts]);
-extract_user_defined_types({terl_type, _}) ->
-  [];
-extract_user_defined_types({terl_generic_type, _}) ->
-  [];
-extract_user_defined_types({terl_type_ref, _, _}) ->
-  [];
-extract_user_defined_types(W) ->
-  throw({fatal_error, not_recognized, W}).
+extract_user_defined_types(T) ->
+  extract_type_terminals(terl_user_defined, T).
 
+extract_generic_types(T) ->
+  extract_type_terminals(terl_generic_type, T).
+
+%% Tags can be one of the following:
+%% - terl_type
+%% - terl_generic_type
+%% - terl_type_ref
+%% - terl_user_defined
+extract_type_terminals(Tag, T) ->
+  lists:foldl(fun(Tp, Acc) ->
+                  case Tp of
+                    {Tag, Type} ->
+                      [Type | Acc];
+                    _ -> Acc
+                  end
+              end, [], type_terminals(T)).
+
+type_terminals({fun_type, Is, O}) ->
+  lists:flatten([type_terminals(I) || I <- Is])
+    ++ type_terminals(O);
+type_terminals({union_type, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({list_type, T}) ->
+  type_terminals(T);
+type_terminals({tuple_type, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({record_type, _, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({type_instance, _, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({terl_type, _} = T) ->
+  [T];
+type_terminals({terl_generic_type, _} = T) ->
+  [T];
+type_terminals({terl_type_ref, _, _} = T) ->
+  [T];
+type_terminals({terl_user_defined, _} = T) ->
+  [T];
+type_terminals(W) ->
+  throw({fatal_error, not_recognized, W}).
 
 %%% Format errors
 format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
@@ -210,8 +271,14 @@ format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
     [N, L1, L2]);
 format_error({duplicate_type_alias_decl, N, L1, L2}) ->
   io_lib:format(
-    "Duplicate type alias definitions '~w' at line ~p and ~p.",
-    [N, L1, L2]);
+    "Type alias definition '~w' at line ~p is already defined with "
+    ++ "the same name at ~p.",
+    [N, L2, L1]);
+format_error({duplicate_type_cons_decl, N, L1, L2}) ->
+  io_lib:format(
+    "Type constructor definition '~w' at line ~p is already defined"
+    ++  " with same name at ~p.",
+    [N, L2, L1]);
 format_error({no_fun_decl_found_for_sig, N, L2}) ->
   io_lib:format(
     "No function implementation found for declared function signature '~w' "
@@ -235,5 +302,10 @@ format_error({undefined_type, N}) ->
   io_lib:format(
     "Undefined type '~w'",
     [N]);
+format_error({tc_generic_type_not_used_rhs, T}) ->
+  io_lib:format(
+    "Generic type parameter ~w is not used in the right hand side of"
+    ++ " type constructor",
+    [T]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).

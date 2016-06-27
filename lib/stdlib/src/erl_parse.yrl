@@ -53,7 +53,8 @@ bin_base_type bin_unit_type type_200 type_300 type_400 type_500
 %% Typed Erlang non-terminals
 terl_fun_type terl_type_alias terl_gen_type terl_list_type terl_inputs
 terl_inputs_100 terl_input terl_input_top terl_type terl_tuple_type terl_output
-terl_output_top terl_record_field_types terl_record_field_type.
+terl_output_top terl_record_field_types terl_record_field_type terl_type_cons
+terl_type_params terl_cons_params.
 
 
 Terminals
@@ -74,6 +75,8 @@ dot.
 
 Left 100 '='.
 Left 200 ':'.
+Left 220 ','.
+Left 250 '->'.
 Left 300 '::'.
 
 Expect 2.
@@ -84,6 +87,7 @@ form -> attribute dot : '$1'.
 form -> function dot : '$1'.
 form -> terl_fun_type : '$1'.
 form -> terl_type_alias : '$1'.
+form -> terl_type_cons : '$1'.
 
 attribute -> '-' atom attr_val               : build_attribute('$2', '$3').
 attribute -> '-' atom typed_attr_val         : build_typed_attribute('$2','$3').
@@ -97,6 +101,13 @@ terl_type_alias -> atom atom '::' terl_output_top dot
 
 terl_fun_type -> atom '::' terl_gen_type dot
                    : terl_build_fun_sig('$1', '$3').
+
+terl_type_cons -> atom atom '(' terl_cons_params ')' '::' terl_output_top dot
+                    : mk_type_cons('$1', '$2', '$4', '$7').
+
+terl_cons_params -> var ',' terl_cons_params
+                      : [{terl_generic_type, element(3, '$1')} | '$3'].
+terl_cons_params -> var : [{terl_generic_type, element(3, '$1')}].
 
 terl_gen_type -> terl_inputs '->' terl_output_top : {fun_type, '$1', '$3'}.
 
@@ -123,6 +134,13 @@ terl_type -> var : terl_build_generic_type('$1').
 terl_type -> atom : terl_build_type(element(3, '$1')).
 terl_type -> atom ':' atom
                : {terl_type_ref, element(3, '$1'), element(3, '$3')}.
+terl_type -> atom '(' terl_type_params ')'
+               : {type_instance, element(3, '$1'), '$3'}.
+
+terl_type_params -> terl_type : ['$1'].
+terl_type_params -> terl_type ',' terl_type_params : ['$1' | '$3'].
+terl_type_params -> terl_gen_type : ['$1'].
+terl_type_params -> terl_gen_type ',' terl_type_params : ['$1' | '$3' ].
 
 terl_list_type -> '(' terl_gen_type ')' : '$2'.
 terl_list_type -> terl_type : '$1'.
@@ -1414,7 +1432,29 @@ mk_type_alias(A, Name, Def) ->
         false ->
           {type_alias, L, element(3, Name), Def}
       end;
-    T -> erlang:raise(error, {undef_keyword, T}, erlang:get_stacktrace())
+    T ->
+      return_error(L,
+                   io_lib:format(
+                     "Undefined keyword '~w'", [T]))
+  end.
+
+mk_type_cons(A, Name, Params, Def) ->
+  {atom, L, Atom} = A,
+  case Atom of
+    type ->
+      TypeName = element(3, Name),
+      case type_internal:built_in(TypeName) of
+        true ->
+          return_error(L,
+                       io_lib:format(
+                         "Redefining built-in type '~w'", [TypeName]));
+        false ->
+          {type_cons, L, element(3, Name), Params, Def}
+      end;
+    T ->
+      return_error(L,
+                   io_lib:format(
+                     "Undefined keyword '~w'", [T]))
   end.
 
 %% vim: ft=erlang
