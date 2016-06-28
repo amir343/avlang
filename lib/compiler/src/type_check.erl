@@ -41,7 +41,7 @@ standard_passes() ->
 type_lint(Forms, FileName, _Opts) ->
   io:format("~p~n", [Forms]),
   St = collect_types(Forms, #state{}),
-  check_consistency_type_cons(St),
+  check_consistency_type_cons(St, FileName),
   Ws1 = check_unsued_user_defined_types(FileName, St),
   check_undefined_types(FileName, St),
   match_fun_sig_with_declared_fun(St),
@@ -200,22 +200,41 @@ add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{ type_cons = TC
 add_declared_fun({function, _, N, _, _} = F, St=#state{declared_fun = DF}) ->
   St#state{declared_fun = dict:append(N, F, DF)}.
 
-check_consistency_type_cons(#state{type_cons = TC}) ->
-  [check_consistency_type_cons0(E1) || {_, E1} <- dict:to_list(TC)].
+check_consistency_type_cons(#state{type_cons = TC}, FN) ->
+  lists:foreach(fun({_, E}) ->
+                    check_consistency_type_cons_lhs_rhs(E, FN),
+                    no_terl_type_used_lhs(E)
+                end, dict:to_list(TC)).
 
 %% Check if that all defined generic type parameters in the left hand side of
-%% type constructor is used in the right hand side.
-check_consistency_type_cons0({type_cons, L, _N, Is, O}) ->
-  GTI = lists:flatten([extract_generic_types(I) || I <- Is]),
-  GTO = extract_generic_types(O),
-  lists:foreach(fun(T) ->
-                    case lists:member(T, GTO) of
-                      false ->
-                        throw({error, L, {tc_generic_type_not_used_rhs, T}});
-                      true ->
-                        ok
-                    end
-                end, GTI).
+%% type constructor is used in the right hand side and vice versa
+check_consistency_type_cons_lhs_rhs({type_cons, L, N, Is, O}, FN) ->
+  GTI0 = lists:flatten([extract_generic_types(I) || I <- Is]),
+  GTO0 = extract_generic_types(O),
+  GTI1 = gb_sets:to_list(gb_sets:from_list(GTI0)),
+  GTO1 = gb_sets:to_list(gb_sets:from_list(GTO0)),
+  NotUsedRhs = GTI1 -- GTO1,
+  NotUsedLhs = GTO1 -- GTI1,
+  case NotUsedLhs =:= NotUsedRhs of
+    true -> ok;
+    false ->
+      Errs = [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}]}
+       || length(NotUsedLhs) =/= 0] ++
+        [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}]}
+         || length(NotUsedRhs) =/= 0],
+     throw(Errs)
+  end.
+
+no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
+  TI0 = lists:flatten([type_terminals(I) || I <- Is]),
+  TI1 = lists:filter(fun({Tag, _}) -> Tag =/= terl_generic_type end, TI0),
+  case length(TI1) of
+    0 ->
+      ok;
+    _ ->
+      TI2 = lists:map(fun(E) -> element(2, E) end, TI1),
+      throw({error, L, {tc_only_generic_type_lhs, TI2}})
+  end.
 
 fun_arity({fun_sig, _, _, {fun_type, I, _}}) ->
   length(I).
@@ -302,10 +321,29 @@ format_error({undefined_type, N}) ->
   io_lib:format(
     "Undefined type '~w'",
     [N]);
-format_error({tc_generic_type_not_used_rhs, T}) ->
+format_error({tc_generic_type_not_used_rhs, Ts}) ->
   io_lib:format(
-    "Generic type parameter ~w is not used in the right hand side of"
+    "Generic type parameter(s) ~s is not used in the right hand side of"
     ++ " type constructor",
-    [T]);
+    [list_to_string(Ts, "")]);
+format_error({tc_generic_type_not_used_lhs, Ts}) ->
+  io_lib:format(
+    "Generic type parameter(s) ~s is not defined in the left hand side of"
+    ++ " type constructor",
+    [list_to_string(Ts, "")]);
+format_error({tc_only_generic_type_lhs, TI}) ->
+  io_lib:format(
+    "Only generic type parameters are allowed in left hand side of "
+    ++ "type constructor definitions. ~s has/have violated this rule.",
+    [list_to_string(TI, "")]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
+
+list_to_string([], Res) ->
+  Res;
+list_to_string([H], Res) ->
+  list_to_string([], io_lib:format("~s~p", [Res, atom_to_list(H)]));
+list_to_string([H|[_, _] = T], Res) ->
+  list_to_string(T, io_lib:format("~s~p, ", [Res, atom_to_list(H)]));
+list_to_string([H|[_] = T], Res) ->
+  list_to_string(T, io_lib:format("~s~p and ", [Res, atom_to_list(H)])).
