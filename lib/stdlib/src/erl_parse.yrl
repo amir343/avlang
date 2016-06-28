@@ -54,7 +54,7 @@ bin_base_type bin_unit_type type_200 type_300 type_400 type_500
 terl_fun_type terl_type_alias terl_gen_type terl_list_type terl_inputs
 terl_inputs_100 terl_input terl_input_top terl_type terl_tuple_type terl_output
 terl_output_top terl_record_field_types terl_record_field_type terl_type_cons
-terl_type_params terl_cons_params.
+terl_type_params terl_cons_params terl_cons_param.
 
 
 Terminals
@@ -105,9 +105,11 @@ terl_fun_type -> atom '::' terl_gen_type dot
 terl_type_cons -> atom atom '(' terl_cons_params ')' '::' terl_output_top dot
                     : mk_type_cons('$1', '$2', '$4', '$7').
 
-terl_cons_params -> var ',' terl_cons_params
-                      : [{terl_generic_type, element(3, '$1')} | '$3'].
-terl_cons_params -> var : [{terl_generic_type, element(3, '$1')}].
+terl_cons_params -> terl_cons_param ',' terl_cons_params : ['$1' | '$3'].
+terl_cons_params -> terl_cons_param : ['$1'].
+
+terl_cons_param -> atom : terl_build_type(element(3, '$1')).
+terl_cons_param -> var : terl_build_generic_type('$1').
 
 terl_gen_type -> terl_inputs '->' terl_output_top : {fun_type, '$1', '$3'}.
 
