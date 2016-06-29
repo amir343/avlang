@@ -113,7 +113,7 @@ terl_cons_param -> var : terl_build_generic_type('$1').
 
 terl_gen_type -> terl_inputs '->' terl_output_top : {fun_type, '$1', '$3'}.
 
-terl_inputs -> '(' ')' : nothing.
+terl_inputs -> '(' ')' : [].
 terl_inputs -> '(' terl_inputs_100 ')' : '$2'.
 terl_inputs -> terl_inputs_100 : '$1'.
 
