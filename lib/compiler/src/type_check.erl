@@ -1,3 +1,21 @@
+%% Current abstract forms from erl_parser:
+%%
+%% {fun_sig, Line, Name, Type}
+%% {fun_type, Is, O}
+%% {type_alias, Line, Name, Type}
+%% {type_cons, Line, Name, Params, Type}
+%% {type_instance, Name, Params}
+%% {terl_type_ref, Module, Name}
+%% {union_type, Types}
+%% {record_type, Name, Types}
+%% {list_type, Type}
+%% {tuple_type, Types}
+%% {terl_type, Type}
+%% {terl_user_defined, Type}
+%% {terl_generic_type, Type}
+%%
+
+
 -module(type_check).
 
 -export([ module/3
@@ -5,12 +23,18 @@
         ]).
 
 -record(state, { fun_sigs      = dict:new()
+                 %% {key, [{fun_sig, L, N, T}]}
                , type_aliases  = dict:new()
+                 %% {Key, {type_alias, L, N, T}}
                , type_cons     = dict:new()
+                 %% {Key, {type_cons, L, N, P, T}}
                , declared_fun  = dict:new()
+                 %% {Key, [{function, ...}]}
                , type_used     = gb_sets:new()
+                 %% Set(atom)
                , type_used_loc = dict:new()
-               }).
+                 %% {Key, [Line]}
+         }).
 
 -define(TYPE_MSG, type_check).
 
