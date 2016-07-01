@@ -60,7 +60,9 @@ run_passes([], _, _, _, Ws) ->
   {ok, Ws}.
 
 standard_passes() ->
-  [fun type_lint/3].
+  [ fun type_lint/3
+  , fun type_check/3
+  ].
 
 type_lint(Forms, FileName, _Opts) ->
   io:format("~p~n", [Forms]),
@@ -74,6 +76,9 @@ type_lint(Forms, FileName, _Opts) ->
   %% - Type expansion: type instances, type aliases
   {ok, Ws1}.
 
+type_check(Forms, FileName, _Opts) ->
+  type_check0(Forms),
+  {ok, []}.
 
 %% Collect forms of interest into state record
 collect_types([{fun_sig, L, _, T} = Form | Forms], St0) ->
@@ -307,6 +312,90 @@ type_terminals({terl_user_defined, _} = T) ->
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
 
+
+%%%%%%%% Type check, scary stuff! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-record(scope, { local = dict:new()
+               , global = dict:new()}).
+
+type_check0(Forms) ->
+  Scope0 = #scope{},
+  type_check0(Forms, Scope0).
+
+type_check0([], Scope) ->
+  Scope;
+type_check0([{function, _L, _N, _A, Cls} | Forms], Scope) ->
+  type_check0(Cls, Scope),
+  type_check0(Forms, Scope);
+type_check0([{clause, _L,  _A, _G, Exprs} | Forms], S=#scope{global = GL}) ->
+  type_check0(Exprs, #scope{local = dict:new(), global = GL}),
+  type_check0(Forms, S);
+type_check0([{match, _L, {var, _, Var}, RHS} | Exprs], Scope0) ->
+  Inferred = type_of(RHS, Scope0),
+  Scope1 = update_local(Scope0, Var, Inferred),
+  type_check0(Exprs, Scope1);
+type_check0([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
+  Inferred = type_of(RHS, Scope0),
+  assert_type_equality(Var, L, Type, Inferred),
+  Scope1 = update_local(Scope0, Var, Inferred),
+  type_check0(Exprs, Scope1);
+type_check0([_ | Fs], Scope) ->
+  type_check0(Fs, Scope).
+
+
+type_of({integer, _, _}, _) ->
+  type_internal:tag_built_in(integer);
+type_of({float, _, _}, _) ->
+  type_internal:tag_built_in(float);
+type_of({op, L, Op, LHS, RHS}, Scope) ->
+  TL = type_of(LHS, Scope),
+  TR = type_of(RHS, Scope),
+  Res = type_internal:dispatch(TL, Op, TR),
+  assert_operator_validity(Res, Op, TL, TR, L),
+  Res;
+type_of({var, _L, Var}, #scope{local = LD}) ->
+  case dict:find(Var, LD) of
+    {ok, V} -> V;
+    error -> undefined
+  end;
+type_of(_, _) ->
+  undefined.
+
+
+
+
+assert_type_equality(Var, L, Declared, Inferred) ->
+  case Inferred of
+    undefined ->
+      ok;
+    T ->
+      case T =:= Declared of
+        true -> ok;
+        false ->
+          throw({error,
+                 L, {declared_inferred_not_march, Var, Declared, Inferred}})
+      end
+  end.
+
+assert_operator_validity(Res, Op, TL, TR, L) ->
+  InvalidOp = type_internal:invalid_operator(),
+  case Res of
+    InvalidOp ->
+      throw({error, L, {invalid_operator, Op, TL, TR}});
+    T -> ok
+  end.
+
+update_local(S=#scope{local = LD}, Var, Type) ->
+  case Type of
+    undefined ->
+      S;
+    T ->
+      io:format("Var=~p, Type=~p~n", [Var, Type]),
+      S#scope{local = dict:store(Var, Type, LD)}
+  end.
+
+
+
 %%% Format errors
 format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
   io_lib:format(
@@ -360,6 +449,14 @@ format_error({tc_only_generic_type_lhs, TI}) ->
     "Only generic type parameters are allowed in left hand side of "
     ++ "type constructor definitions. ~s has/have violated this rule.",
     [list_to_string(TI, "")]);
+format_error({declared_inferred_not_march, Var, Declared, Inferred}) ->
+  io_lib:format(
+    "Expected variable ~p to be of type ~p but is ~p",
+    [Var, pp_type(Declared), pp_type(Inferred)]);
+format_error({invalid_operator, Op, TL, TR}) ->
+  io_lib:format(
+    "Invalid operator ~p on types ~p and ~p",
+    [Op, pp_type(TL), pp_type(TR)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -371,3 +468,9 @@ list_to_string([H|[_, _] = T], Res) ->
   list_to_string(T, io_lib:format("~s~p, ", [Res, atom_to_list(H)]));
 list_to_string([H|[_] = T], Res) ->
   list_to_string(T, io_lib:format("~s~p and ", [Res, atom_to_list(H)])).
+
+
+pp_type({terl_type, T}) ->
+  T;
+pp_type(T) ->
+  T.
