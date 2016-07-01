@@ -1,14 +1,33 @@
 -module(type_internal).
 
--export([ type_tag/1
+-export([ tag_built_in/1
+        , type_tag/1
         , built_in/1
+        , dispatch/3
+        , invalid_operator/0
         ]).
+
+dispatch({_, integer}, Op, {_, T}) ->
+  terl_integer:op(Op, T);
+dispatch({_, float}, Op, {_, T}) ->
+  terl_float:op(Op, T);
+dispatch({_, boolean}, Op, {_, T}) ->
+  terl_boolean:op(Op, T);
+dispatch(T, Op, T2) ->
+  io:format("No dispatcher defined for Type ~p~n", [T]),
+  dispatch_undef.
 
 type_tag(Type) ->
   case built_in(Type) of
     true -> {terl_type, Type};
     false -> {terl_user_defined, Type}
   end.
+
+invalid_operator() ->
+  invalid_operator.
+
+tag_built_in(Type) ->
+  {terl_type, Type}.
 
 built_in(any) -> true;
 built_in(none) -> true;
