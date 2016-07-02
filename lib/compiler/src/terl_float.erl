@@ -1,59 +1,73 @@
 -module(terl_float).
 
--export([op/2]).
+-export([ op/1
+        , op/2
+        ]).
+
+-include("type_macros.hrl").
+
+op(_, undefined) ->
+  ?UNDEFINED;
 
 op('/', float) ->
-  {terl_type, float};
+  ?FLOAT;
 op('+', float) ->
-  {terl_type, float};
+  ?FLOAT;
 op('-', float) ->
-  {terl_type, float};
+  ?FLOAT;
 op('*', float) ->
-  {terl_type, float};
+  ?FLOAT;
 
 op('+', integer) ->
-  {terl_type, float};
+  ?FLOAT;
 op('*', integer) ->
-  {terl_type, float};
+  ?FLOAT;
 op('/', integer) ->
-  {terl_type, float};
+  ?FLOAT;
 op('-', integer) ->
-  {terl_type, float};
+  ?FLOAT;
 
 op('div', _) ->
-  type_internal:invalid_operator();
+  ?INVALID;
 op('rem', _) ->
-  type_internal:invalid_operator();
+  ?INVALID;
 
 op('==', _) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('=:=', _) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op('/=', _) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('=/=', _) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op('>=', integer) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('>=', float) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op('=<', integer) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('=<', float) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op('<', integer) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('<', float) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op('>', integer) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 op('>', float) ->
-  {terl_type, boolean};
+  ?BOOLEAN;
 
 op(_, _) ->
-  type_internal:invalid_operator().
+  ?INVALID.
+
+op('+') ->
+  ?FLOAT;
+op('-') ->
+  ?FLOAT;
+op(_) ->
+  ?INVALID.

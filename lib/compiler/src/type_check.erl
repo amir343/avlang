@@ -76,7 +76,7 @@ type_lint(Forms, FileName, _Opts) ->
   %% - Type expansion: type instances, type aliases
   {ok, Ws1}.
 
-type_check(Forms, FileName, _Opts) ->
+type_check(Forms, _FileName, _Opts) ->
   type_check0(Forms),
   {ok, []}.
 
@@ -237,7 +237,7 @@ check_consistency_type_cons(#state{type_cons = TC}, FN) ->
 
 %% Check if that all defined generic type parameters in the left hand side of
 %% type constructor is used in the right hand side and vice versa
-check_consistency_type_cons_lhs_rhs({type_cons, L, N, Is, O}, FN) ->
+check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
   GTI0 = lists:flatten([extract_generic_types(I) || I <- Is]),
   GTO0 = extract_generic_types(O),
   GTI1 = gb_sets:to_list(gb_sets:from_list(GTI0)),
@@ -343,25 +343,71 @@ type_check0([_ | Fs], Scope) ->
   type_check0(Fs, Scope).
 
 
+type_of({nil, _}, _) ->
+  {list_type, nothing};
 type_of({integer, _, _}, _) ->
   type_internal:tag_built_in(integer);
 type_of({float, _, _}, _) ->
   type_internal:tag_built_in(float);
+type_of({atom, _, _}, _) ->
+  type_internal:tag_built_in(atom);
 type_of({op, L, Op, LHS, RHS}, Scope) ->
   TL = type_of(LHS, Scope),
   TR = type_of(RHS, Scope),
   Res = type_internal:dispatch(TL, Op, TR),
-  assert_operator_validity(Res, Op, TL, TR, L),
-  Res;
+  assert_operator_validity(Res, Op, TL, TR, L);
+type_of({op, L, Op, RHS}, Scope) ->
+  TR = type_of(RHS, Scope),
+  Res = type_internal:dispatch(Op, TR),
+  assert_operator_validity(Res, Op, TR, L);
 type_of({var, _L, Var}, #scope{local = LD}) ->
   case dict:find(Var, LD) of
     {ok, V} -> V;
     error -> undefined
   end;
-type_of(_, _) ->
+type_of({cons, L, H, T}, Scope) ->
+  TH = type_of(H, Scope),
+  TT = unwrap_list(type_of(T, Scope)),
+  assert_list_validity(TT, TH, L);
+type_of({tuple, L, Es}, Scope) ->
+  TES = [type_of(E, Scope) || E <- Es],
+  assert_tuple_validity(TES, L);
+type_of(T, _) ->
+  io:format("type_of ~p not implemented", [T]),
   undefined.
 
 
+unwrap_list({list_type, T}) ->
+  T;
+unwrap_list(undefined) ->
+  undefined;
+unwrap_list(T) ->
+  io:format("Can not unwrap ~p~n~p~n", [T, erlang:get_stacktrace()]).
+
+
+assert_list_validity(TT, TH, L) ->
+  case {TH, TT} of
+    {undefined, _}         -> undefined;
+    {_, undefined}         -> undefined;
+    {undefined, undefined} -> undefined;
+    {_, nothing}           -> {list_type, TH};
+    {T1, T2} ->
+      case T1 =:= T2 of
+        true -> {list_type, T1};
+        false ->
+          throw({error,
+                L, {heterogeneous_list_not_supported, T1, T2}})
+      end
+  end.
+
+assert_tuple_validity(TES, L) ->
+  Undefined = lists:filter(fun(T) ->
+                   T =:= undefined
+               end, TES),
+  case length(Undefined) of
+    0 -> {tuple_type, TES};
+    _ -> undefined
+  end.
 
 
 assert_type_equality(Var, L, Declared, Inferred) ->
@@ -373,7 +419,7 @@ assert_type_equality(Var, L, Declared, Inferred) ->
         true -> ok;
         false ->
           throw({error,
-                 L, {declared_inferred_not_march, Var, Declared, Inferred}})
+                 L, {declared_inferred_not_match, Var, Declared, Inferred}})
       end
   end.
 
@@ -382,15 +428,24 @@ assert_operator_validity(Res, Op, TL, TR, L) ->
   case Res of
     InvalidOp ->
       throw({error, L, {invalid_operator, Op, TL, TR}});
-    T -> ok
+    R ->
+      R
+  end.
+
+assert_operator_validity(Res, Op, TR, L) ->
+  InvalidOp = type_internal:invalid_operator(),
+  case Res of
+    InvalidOp ->
+      throw({error, L, {invalid_operator, Op, TR}});
+    R -> R
   end.
 
 update_local(S=#scope{local = LD}, Var, Type) ->
   case Type of
     undefined ->
       S;
-    T ->
-      io:format("Var=~p, Type=~p~n", [Var, Type]),
+    _ ->
+      io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
       S#scope{local = dict:store(Var, Type, LD)}
   end.
 
@@ -449,14 +504,22 @@ format_error({tc_only_generic_type_lhs, TI}) ->
     "Only generic type parameters are allowed in left hand side of "
     ++ "type constructor definitions. ~s has/have violated this rule.",
     [list_to_string(TI, "")]);
-format_error({declared_inferred_not_march, Var, Declared, Inferred}) ->
+format_error({declared_inferred_not_match, Var, Declared, Inferred}) ->
   io_lib:format(
-    "Expected variable ~p to be of type ~p but is ~p",
+    "Expected variable ~p to be of type ~s but is ~s",
     [Var, pp_type(Declared), pp_type(Inferred)]);
 format_error({invalid_operator, Op, TL, TR}) ->
   io_lib:format(
     "Invalid operator ~p on types ~p and ~p",
     [Op, pp_type(TL), pp_type(TR)]);
+format_error({invalid_operator, Op, TR}) ->
+  io_lib:format(
+    "Illegal operator ~p on type ~p",
+    [Op, pp_type(TR)]);
+format_error({heterogeneous_list_not_supported, T1, T2}) ->
+  io_lib:format(
+    "List of heterogeneous types of ~p and ~p is not allowed",
+    [pp_type(T1), pp_type(T2)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -471,6 +534,19 @@ list_to_string([H|[_] = T], Res) ->
 
 
 pp_type({terl_type, T}) ->
-  T;
+  io_lib:format("~s", [T]);
+pp_type({list_type, T}) ->
+  io_lib:format("[~s]", [pp_type(T)]);
+pp_type({tuple_type, Ts}) ->
+  TT = [pp_type(T) || T <- Ts],
+  io_lib:format("{~s}", [list_to_string_sep(TT, $,)]);
 pp_type(T) ->
   T.
+
+list_to_string_sep(List, Sep) ->
+  lists:flatten(lists:reverse(list_to_string_sep1(List, Sep, []))).
+
+list_to_string_sep1([Head | []], _Sep, Acc) ->
+  [Head | Acc];
+list_to_string_sep1([Head | Tail], Sep, Acc) ->
+  list_to_string_sep1(Tail, Sep, [Sep, Head | Acc]).
