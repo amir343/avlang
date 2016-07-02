@@ -1,10 +1,11 @@
 -module(type_internal).
 
--export([ tag_built_in/1
-        , type_tag/1
-        , built_in/1
+-export([ built_in/1
+        , dispatch/2
         , dispatch/3
         , invalid_operator/0
+        , tag_built_in/1
+        , type_tag/1
         ]).
 
 dispatch({_, integer}, Op, {_, T}) ->
@@ -13,9 +14,21 @@ dispatch({_, float}, Op, {_, T}) ->
   terl_float:op(Op, T);
 dispatch({_, boolean}, Op, {_, T}) ->
   terl_boolean:op(Op, T);
+dispatch({list_type, T1}, Op, T2) ->
+  terl_list:op(Op, T1, T2);
 dispatch(T, Op, T2) ->
-  io:format("No dispatcher defined for Type ~p~n", [T]),
-  dispatch_undef.
+  io:format("No dispatcher defined for Operator ~p and Type ~p and ~p~n", [Op, T, T2]),
+  undefined.
+
+dispatch(Op, {_, boolean}) ->
+  terl_boolean:op(Op);
+dispatch(Op, {_, float}) ->
+  terl_float:op(Op);
+dispatch(Op, {_, integer}) ->
+  terl_integer:op(Op);
+dispatch(Op, T) ->
+  io:format("No dispatcher defined for Operator ~p and Type ~p~n", [Op, T]),
+  undefined.
 
 type_tag(Type) ->
   case built_in(Type) of
