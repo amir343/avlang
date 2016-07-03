@@ -5,54 +5,34 @@
 
 -include("type_macros.hrl").
 
-op(_, undefined) ->
-  ?UNDEFINED;
+op(_, undefined)   -> ?UNDEFINED;
 
-op('and', boolean) ->
-  ?BOOLEAN;
-op('or', boolean) ->
-  ?BOOLEAN;
-op('xor', boolean) ->
-  ?BOOLEAN;
+op('and', boolean) -> ?BOOLEAN;
+op('or', boolean)  -> ?BOOLEAN;
+op('xor', boolean) -> ?BOOLEAN;
 
-op('/', _) ->
-  ?INVALID;
-op('+', _) ->
-  ?INVALID;
-op('-', _) ->
-  ?INVALID;
-op('*', _) ->
-  ?INVALID;
+op('/', _)         -> ?INVALID;
+op('+', _)         -> ?INVALID;
+op('-', _)         -> ?INVALID;
+op('*', _)         -> ?INVALID;
 
-op('div', _) ->
-  ?INVALID;
-op('rem', _) ->
-  ?INVALID;
+op('div', _)       -> ?INVALID;
+op('rem', _)       -> ?INVALID;
 
-op('==', _) ->
-  ?BOOLEAN;
-op('=:=', _) ->
-  ?BOOLEAN;
+op('==', _)        -> ?BOOLEAN;
+op('=:=', _)       -> ?BOOLEAN;
 
-op('/=', _) ->
-  ?BOOLEAN;
-op('=/=', _) ->
-  ?BOOLEAN;
+op('/=', _)        -> ?BOOLEAN;
+op('=/=', _)       -> ?BOOLEAN;
 
-op('>=', _) ->
-  ?INVALID;
+op('>=', _)        -> ?INVALID;
+op('=<', _)        -> ?INVALID;
+op('<', _)         -> ?INVALID;
+op('>', _)         -> ?INVALID;
 
-op('=<', _) ->
-  ?INVALID;
+op(_, _)           -> ?INVALID.
 
-op('<', _) ->
-  ?INVALID;
+%%-- unary ---------------------------------------
 
-op('>', _) ->
-  ?INVALID;
-
-op(_, _) ->
-  ?INVALID.
-
-op('not') ->
-  ?BOOLEAN.
+op('not')          -> ?BOOLEAN;
+op(_)              -> ?INVALID.

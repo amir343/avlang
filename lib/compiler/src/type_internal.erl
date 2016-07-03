@@ -8,6 +8,8 @@
         , type_tag/1
         ]).
 
+%% Binary operator dispatcher to respective types
+
 dispatch({_, integer}, Op, {_, T}) ->
   terl_integer:op(Op, T);
 dispatch({_, float}, Op, {_, T}) ->
@@ -17,8 +19,11 @@ dispatch({_, boolean}, Op, {_, T}) ->
 dispatch({list_type, T1}, Op, T2) ->
   terl_list:op(Op, T1, T2);
 dispatch(T, Op, T2) ->
-  io:format("No dispatcher defined for Operator ~p and Type ~p and ~p~n", [Op, T, T2]),
+  io:format("No dispatcher defined for Operator "
+            ++ "~p and Type ~p and ~p~n", [Op, T, T2]),
   undefined.
+
+%% Unary operator dispatcher to respective types
 
 dispatch(Op, {_, boolean}) ->
   terl_boolean:op(Op);
@@ -26,6 +31,8 @@ dispatch(Op, {_, float}) ->
   terl_float:op(Op);
 dispatch(Op, {_, integer}) ->
   terl_integer:op(Op);
+dispatch(Op, {_, list_type}) ->
+  terl_list:op(Op);
 dispatch(Op, T) ->
   io:format("No dispatcher defined for Operator ~p and Type ~p~n", [Op, T]),
   undefined.
