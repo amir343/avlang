@@ -400,7 +400,7 @@ assert_list_validity(TT, TH, L) ->
       end
   end.
 
-assert_tuple_validity(TES, L) ->
+assert_tuple_validity(TES, _L) ->
   Undefined = lists:filter(fun(T) ->
                    T =:= undefined
                end, TES),
