@@ -39,13 +39,13 @@
 -define(TYPE_MSG, type_check).
 
 module(Forms, FileName, Opts) ->
-  run_passes(standard_passes(), Forms, FileName, Opts, []).
+  run_passes(standard_passes(), Forms, FileName, Opts, [], #state{}).
 
-run_passes([P | Ps], Fs, Fn, Opts, Ws0) ->
+run_passes([P | Ps], Fs, Fn, Opts, Ws0, State0) ->
   try
-    case P(Fs, Fn, Opts) of
-      {ok, Ws} ->
-        run_passes(Ps, Fs, Fn, Opts, Ws0 ++ Ws);
+    case P(Fs, Fn, Opts, State0) of
+      {ok, Ws, State1} ->
+        run_passes(Ps, Fs, Fn, Opts, Ws0 ++ Ws, State1);
       {error, _, _} = E ->
         E
     end
@@ -56,17 +56,17 @@ run_passes([P | Ps], Fs, Fn, Opts, Ws0) ->
       io:format("Something bad happened, type system apologizes: ~p:~p~n"
                , [EE, Err])
   end;
-run_passes([], _, _, _, Ws) ->
+run_passes([], _, _, _, Ws, _) ->
   {ok, Ws}.
 
 standard_passes() ->
-  [ fun type_lint/3
-  , fun type_check/3
+  [ fun type_lint/4
+  , fun type_check/4
   ].
 
-type_lint(Forms, FileName, _Opts) ->
+type_lint(Forms, FileName, _Opts, State) ->
   io:format("~p~n", [Forms]),
-  St = collect_types(Forms, #state{}),
+  St = collect_types(Forms, State),
   check_consistency_type_cons(St, FileName),
   Ws1 = check_unsued_user_defined_types(FileName, St),
   check_undefined_types(FileName, St),
@@ -74,11 +74,11 @@ type_lint(Forms, FileName, _Opts) ->
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
-  {ok, Ws1}.
+  {ok, Ws1, St}.
 
-type_check(Forms, _FileName, _Opts) ->
-  type_check0(Forms),
-  {ok, []}.
+type_check(Forms, _FileName, _Opts, State) ->
+  type_check0(Forms, State),
+  {ok, [], State}.
 
 %% Collect forms of interest into state record
 collect_types([{fun_sig, L, _, T} = Form | Forms], St0) ->
@@ -316,73 +316,115 @@ type_terminals(W) ->
 %%%%%%%% Type check, scary stuff! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -record(scope, { local = dict:new()
-               , global = dict:new()}).
+               , global = dict:new()
+               , state = #state{}
+               , final = false}).
 
-type_check0(Forms) ->
-  Scope0 = #scope{},
-  type_check0(Forms, Scope0).
+type_check0(Forms, State) ->
+  Scope0 = #scope{state = State},
+  Scope1 = type_check1(Forms, Scope0),
+  Scope2 = Scope1#scope{local = dict:new(), final = true},
+  io:format("Scope2: ~p", [Scope2#scope.final]),
+  type_check1(Forms, Scope2).
 
-type_check0([], Scope) ->
+type_check1([], Scope) ->
   Scope;
-type_check0([{function, _L, _N, _A, Cls} | Forms], Scope) ->
-  type_check0(Cls, Scope),
-  type_check0(Forms, Scope);
-type_check0([{clause, _L,  _A, _G, Exprs} | Forms], S=#scope{global = GL}) ->
-  type_check0(Exprs, #scope{local = dict:new(), global = GL}),
-  type_check0(Forms, S);
-type_check0([{match, _L, {var, _, Var}, RHS} | Exprs], Scope0) ->
+
+type_check1([{function, _L, _N, _A, Cls} | Forms], Scope) ->
+  type_check1(Cls, Scope),
+  type_check1(Forms, Scope);
+
+type_check1([{clause, _L,  _A, _G, Exprs} | Forms], Scope) ->
+  type_check1(Exprs, Scope#scope{local = dict:new()}),
+  type_check1(Forms, Scope);
+
+type_check1([{match, _L, {var, _, Var}, RHS} | Exprs], Scope0) ->
   Inferred = type_of(RHS, Scope0),
   Scope1 = update_local(Scope0, Var, Inferred),
-  type_check0(Exprs, Scope1);
-type_check0([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
+  type_check1(Exprs, Scope1);
+
+type_check1([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
   Inferred = type_of(RHS, Scope0),
   assert_type_equality(Var, L, Type, Inferred),
   Scope1 = update_local(Scope0, Var, Inferred),
-  type_check0(Exprs, Scope1);
-type_check0([_ | Fs], Scope) ->
-  type_check0(Fs, Scope).
+  type_check1(Exprs, Scope1);
+
+type_check1([_ | Fs], Scope) ->
+  type_check1(Fs, Scope).
 
 
 type_of({nil, _}, _) ->
   {list_type, nothing};
+
 type_of({integer, _, _}, _) ->
   type_internal:tag_built_in(integer);
+
 type_of({float, _, _}, _) ->
   type_internal:tag_built_in(float);
+
 type_of({atom, _, _}, _) ->
   type_internal:tag_built_in(atom);
+
 type_of({op, L, Op, LHS, RHS}, Scope) ->
   TL = type_of(LHS, Scope),
+  is_valid_type(LHS, TL, Scope),
   TR = type_of(RHS, Scope),
+  is_valid_type(RHS, TR, Scope),
   Res = type_internal:dispatch(TL, Op, TR),
   assert_operator_validity(Res, Op, TL, TR, L);
+
 type_of({op, L, Op, RHS}, Scope) ->
   TR = type_of(RHS, Scope),
+  is_valid_type(RHS, TR, Scope),
   Res = type_internal:dispatch(Op, TR),
   assert_operator_validity(Res, Op, TR, L);
-type_of({var, _L, Var}, #scope{local = LD}) ->
-  case dict:find(Var, LD) of
-    {ok, V} -> V;
-    error -> undefined
-  end;
+
+type_of({var, _L, Var} = F, #scope{local = LD} = S) ->
+  T = case dict:find(Var, LD) of
+        {ok, V} -> V;
+        error -> undefined
+      end,
+  is_valid_type(F, T, S),
+  T;
+
 type_of({cons, L, H, T}, Scope) ->
   TH = type_of(H, Scope),
-  TT = unwrap_list(type_of(T, Scope)),
+  is_valid_type(H, TH, Scope),
+  TT = unwrap_list(T, type_of(T, Scope), L),
+  is_valid_type(T, TT, Scope),
   assert_list_validity(TT, TH, L);
+
 type_of({tuple, L, Es}, Scope) ->
-  TES = [type_of(E, Scope) || E <- Es],
+  TES = [ begin
+            T = type_of(E, Scope),
+            is_valid_type(E, T, Scope),
+            T
+          end || E <- Es],
   assert_tuple_validity(TES, L);
 type_of(T, _) ->
   io:format("type_of ~p not implemented", [T]),
   undefined.
 
+is_valid_type(E, T, S) ->
+  is_valid_type1(E, T, S#scope.final).
 
-unwrap_list({list_type, T}) ->
+is_valid_type1(E, T, true) ->
+  case T of
+    undefined ->
+      throw({error, element(2, E), {can_not_infer_type, E}});
+    _ ->
+      ok
+  end;
+is_valid_type1(_, _, false) ->
+  ok.
+
+
+unwrap_list(_, {list_type, T}, _) ->
   T;
-unwrap_list(undefined) ->
+unwrap_list(_, undefined, _) ->
   undefined;
-unwrap_list(T) ->
-  io:format("Can not unwrap ~p~n~p~n", [T, erlang:get_stacktrace()]).
+unwrap_list(_, T, L) ->
+  throw({error, L, {not_list_cons_position, T}}).
 
 
 assert_list_validity(TT, TH, L) ->
@@ -510,16 +552,24 @@ format_error({declared_inferred_not_match, Var, Declared, Inferred}) ->
     [Var, pp_type(Declared), pp_type(Inferred)]);
 format_error({invalid_operator, Op, TL, TR}) ->
   io_lib:format(
-    "Invalid operator ~p on types ~p and ~p",
+    "Invalid operator ~p on types ~s and ~s",
     [Op, pp_type(TL), pp_type(TR)]);
 format_error({invalid_operator, Op, TR}) ->
   io_lib:format(
-    "Illegal operator ~p on type ~p",
+    "Illegal operator ~p on type ~s",
     [Op, pp_type(TR)]);
 format_error({heterogeneous_list_not_supported, T1, T2}) ->
   io_lib:format(
-    "List of heterogeneous types of ~p and ~p is not allowed",
+    "List of heterogeneous types of ~s and ~s is not allowed",
     [pp_type(T1), pp_type(T2)]);
+format_error({can_not_infer_type, E}) ->
+  io_lib:format(
+    "Could not infer the type for ~s",
+    [pp_expr(E)]);
+format_error({not_list_cons_position, T}) ->
+  io_lib:format(
+    "Expected a type of list in cons position but found ~s",
+    [pp_type(T)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -542,6 +592,11 @@ pp_type({tuple_type, Ts}) ->
   io_lib:format("{~s}", [list_to_string_sep(TT, $,)]);
 pp_type(T) ->
   T.
+
+pp_expr({var, _, V}) ->
+  io_lib:format("'~s'", [V]);
+pp_expr(V) ->
+  io_lib:format("~p", [V]).
 
 list_to_string_sep(List, Sep) ->
   lists:flatten(lists:reverse(list_to_string_sep1(List, Sep, []))).

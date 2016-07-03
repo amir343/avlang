@@ -43,7 +43,7 @@ op(_, _)          -> ?INVALID.
 
 %%-- unary ---------------------------------------
 
-op('+') -> ?FLOAT;
-op('-') -> ?FLOAT;
+op('+')           -> ?FLOAT;
+op('-')           -> ?FLOAT;
 
-op(_) -> ?INVALID.
+op(_)             -> ?INVALID.
