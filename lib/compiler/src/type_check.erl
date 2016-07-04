@@ -324,7 +324,6 @@ type_check0(Forms, State) ->
   Scope0 = #scope{state = State},
   Scope1 = type_check1(Forms, Scope0),
   Scope2 = Scope1#scope{local = dict:new(), final = true},
-  io:format("Scope2: ~p", [Scope2#scope.final]),
   type_check1(Forms, Scope2).
 
 type_check1([], Scope) ->
@@ -338,9 +337,10 @@ type_check1([{clause, _L,  _A, _G, Exprs} | Forms], Scope) ->
   type_check1(Exprs, Scope#scope{local = dict:new()}),
   type_check1(Forms, Scope);
 
-type_check1([{match, _L, {var, _, Var}, RHS} | Exprs], Scope0) ->
+type_check1([{match, _L, LHS, RHS} | Exprs], Scope0) ->
   Inferred = type_of(RHS, Scope0),
-  Scope1 = update_local(Scope0, Var, Inferred),
+  VarTypes = reduce(LHS, Inferred, []),
+  Scope1 = update_local(Scope0, VarTypes),
   type_check1(Exprs, Scope1);
 
 type_check1([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
@@ -351,6 +351,30 @@ type_check1([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
 
 type_check1([_ | Fs], Scope) ->
   type_check1(Fs, Scope).
+
+reduce({var, _, '_'}, _, Rs) ->
+  Rs;
+reduce({var, _, Var}, T, Rs) ->
+  [{Var, T} | Rs];
+reduce({cons, _, A, B}, T, Rs0) ->
+  Rs1 = reduce(A, ulist(T), Rs0),
+  reduce(B, T, Rs1);
+reduce({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
+  case length(Es) =/= length(Ts) of
+    true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
+    false ->
+      lists:foldl(fun({K, V}, Acc) ->
+                      reduce(K, V, Acc)
+                  end, Rs0, lists:zip(Es, Ts))
+  end;
+reduce(_, _, W) ->
+  W.
+
+ulist({list_type, T}) ->
+  T;
+ulist(_) ->
+  undefined.
+
 
 
 type_of({nil, _}, _) ->
@@ -395,12 +419,12 @@ type_of({cons, L, H, T}, Scope) ->
   assert_list_validity(TT, TH, L);
 
 type_of({tuple, L, Es}, Scope) ->
-  TES = [ begin
+  TEs = [ begin
             T = type_of(E, Scope),
             is_valid_type(E, T, Scope),
             T
           end || E <- Es],
-  assert_tuple_validity(TES, L);
+  assert_tuple_validity(TEs, L);
 type_of(T, _) ->
   io:format("type_of ~p not implemented", [T]),
   undefined.
@@ -491,6 +515,11 @@ update_local(S=#scope{local = LD}, Var, Type) ->
       S#scope{local = dict:store(Var, Type, LD)}
   end.
 
+update_local(S, VarTypes) ->
+  lists:foldl(fun({K, T}, Acc) ->
+                 update_local(Acc, K, T)
+             end, S, VarTypes).
+
 
 
 %%% Format errors
@@ -569,6 +598,11 @@ format_error({can_not_infer_type, E}) ->
 format_error({not_list_cons_position, T}) ->
   io_lib:format(
     "Expected a type of list in cons position but found ~s",
+    [pp_type(T)]);
+format_error({match_on_unequally_sized_tuple, T}) ->
+  io_lib:format(
+    "Match on different tuple sizes. Right hand side tuple ~s is " ++
+    "different from left hand side",
     [pp_type(T)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
