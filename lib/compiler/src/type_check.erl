@@ -367,6 +367,9 @@ reduce({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
                       reduce(K, V, Acc)
                   end, Rs0, lists:zip(Es, Ts))
   end;
+reduce({op, _, '++', {string, _, _}, {var, _, _} = V},
+       {terl_type, string} = T, Rs) ->
+  reduce(V, T, Rs);
 reduce(_, _, W) ->
   W.
 
@@ -388,6 +391,9 @@ type_of({float, _, _}, _) ->
 
 type_of({atom, _, _}, _) ->
   type_internal:tag_built_in(atom);
+
+type_of({string, _, _}, _) ->
+  type_internal:tag_built_in(string);
 
 type_of({op, L, Op, LHS, RHS}, Scope) ->
   TL = type_of(LHS, Scope),
@@ -425,6 +431,7 @@ type_of({tuple, L, Es}, Scope) ->
             T
           end || E <- Es],
   assert_tuple_validity(TEs, L);
+
 type_of(T, _) ->
   io:format("type_of ~p not implemented", [T]),
   undefined.

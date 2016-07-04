@@ -16,6 +16,8 @@ dispatch({_, float}, Op, {_, T}) ->
   terl_float:op(Op, T);
 dispatch({_, boolean}, Op, {_, T}) ->
   terl_boolean:op(Op, T);
+dispatch({_, string}, Op, {_, T}) ->
+  terl_string:op(Op, T);
 dispatch({list_type, T1}, Op, T2) ->
   terl_list:op(Op, T1, T2);
 dispatch(T, Op, T2) ->
@@ -31,6 +33,8 @@ dispatch(Op, {_, float}) ->
   terl_float:op(Op);
 dispatch(Op, {_, integer}) ->
   terl_integer:op(Op);
+dispatch(Op, {_, string}) ->
+  terl_string:op(Op);
 dispatch(Op, {_, list_type}) ->
   terl_list:op(Op);
 dispatch(Op, T) ->
