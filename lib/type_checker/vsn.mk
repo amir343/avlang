@@ -1,0 +1,1 @@
+TYPE_CHECKER_VSN = 0.0.1
