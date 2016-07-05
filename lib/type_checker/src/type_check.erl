@@ -343,19 +343,26 @@ type_check1([{match, _L, LHS, RHS} | Exprs], Scope0) ->
   Scope1 = update_local(Scope0, VarTypes),
   type_check1(Exprs, Scope1);
 
-type_check1([{match, L, {var, _, Var}, Type, RHS} | Exprs], Scope0) ->
+type_check1([{match, L, {var, _, Var} = V, Type, RHS} | Exprs], Scope0) ->
   Inferred = type_of(RHS, Scope0),
   assert_type_equality(Var, L, Type, Inferred),
-  Scope1 = update_local(Scope0, Var, Inferred),
+  Scope1 = update_local(Scope0, V, Inferred),
   type_check1(Exprs, Scope1);
 
 type_check1([_ | Fs], Scope) ->
   type_check1(Fs, Scope).
 
+%% Tries to pattern match LHS and RHS and infer type
+%% for a variable in LHS from RHS. For sake of error handling
+%% we need to reduce to all posssible terminals in LHS.
+reduce({integer, _, _}, _, Rs) ->
+  Rs;
+reduce({atom, _, _}, _, Rs) ->
+  Rs;
 reduce({var, _, '_'}, _, Rs) ->
   Rs;
-reduce({var, _, Var}, T, Rs) ->
-  [{Var, T} | Rs];
+reduce({var, _, _} = V, T, Rs) ->
+  [{V, T} | Rs];
 reduce({cons, _, A, B}, T, Rs0) ->
   Rs1 = reduce(A, ulist(T), Rs0),
   reduce(B, T, Rs1);
@@ -367,6 +374,8 @@ reduce({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
                       reduce(K, V, Acc)
                   end, Rs0, lists:zip(Es, Ts))
   end;
+reduce({tuple, _L, Es}, _, Rs0) ->
+  lists:flatten([reduce(E, undefined, []) || E <- Es]) ++ Rs0;
 reduce({op, _, '++', {string, _, _}, {var, _, _} = V},
        {terl_type, string} = T, Rs) ->
   reduce(V, T, Rs);
@@ -513,13 +522,23 @@ assert_operator_validity(Res, Op, TR, L) ->
     R -> R
   end.
 
-update_local(S=#scope{local = LD}, Var, Type) ->
+update_local(S=#scope{local = LD, final = false}, Var, Type) ->
+  {var, _, V} = Var,
   case Type of
     undefined ->
       S;
     _ ->
+      io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
+      S#scope{local = dict:store(V, Type, LD)}
+  end;
+update_local(S=#scope{local = LD, final = true}, Var, Type) ->
+  {var, L, V} = Var,
+  case Type of
+    undefined ->
+      throw({error, L, {can_not_infer_type, V}});
+    _ ->
       io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
-      S#scope{local = dict:store(Var, Type, LD)}
+      S#scope{local = dict:store(V, Type, LD)}
   end.
 
 update_local(S, VarTypes) ->
