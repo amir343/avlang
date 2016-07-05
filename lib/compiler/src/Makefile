@@ -91,14 +91,7 @@ MODULES =  \
 	v3_core \
 	v3_kernel \
 	v3_kernel_pp \
-	v3_life \
-	type_internal \
-	type_check \
-	terl_integer \
-	terl_float \
-	terl_list \
-	terl_boolean \
-	terl_string
+	v3_life
 
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
 
@@ -106,8 +99,7 @@ HRL_FILES= \
 	beam_disasm.hrl \
 	core_parse.hrl \
 	v3_kernel.hrl \
-	v3_life.hrl \
-	type_macros.hrl
+	v3_life.hrl
 
 YRL_FILE = core_parse.yrl
 
