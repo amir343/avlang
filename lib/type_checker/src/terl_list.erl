@@ -6,8 +6,6 @@
 
 -include("type_macros.hrl").
 
-op(_, _, undefined)               -> ?UNDEFINED;
-
 op('++', T, {list_type, nothing}) -> {list_type, T};
 op('--', T, {list_type, nothing}) -> {list_type, T};
 op('++', nothing, {list_type, T}) -> {list_type, T};
@@ -15,6 +13,12 @@ op('--', nothing, {list_type, T}) -> {list_type, T};
 
 op('++', T, {list_type, T})       -> {list_type, T};
 op('--', T, {list_type, T})       -> {list_type, T};
+
+op('++', T, undefined)            -> {list_type, T};
+op('--', T, undefined)            -> {list_type, T};
+
+op(_, _, undefined)               -> ?UNDEFINED;
+
 
 op(_, _, _)                       -> ?INVALID.
 

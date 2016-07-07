@@ -9,17 +9,34 @@
         ]).
 
 %% Binary operator dispatcher to respective types
+dispatch(undefined, _, undefined) ->
+  undefined;
+dispatch(undefined, Op, T) ->
+  dispatch(T, Op, undefined);
 
 dispatch({_, integer}, Op, {_, T}) ->
   terl_integer:op(Op, T);
+dispatch({_, integer}, Op, undefined) ->
+  terl_integer:op(Op, undefined);
+
 dispatch({_, float}, Op, {_, T}) ->
   terl_float:op(Op, T);
+dispatch({_, float}, Op, undefined) ->
+  terl_float:op(Op, undefined);
+
 dispatch({_, boolean}, Op, {_, T}) ->
   terl_boolean:op(Op, T);
+dispatch({_, boolean}, Op, undefined) ->
+  terl_boolean:op(Op, undefined);
+
 dispatch({_, string}, Op, {_, T}) ->
   terl_string:op(Op, T);
+dispatch({_, string}, Op, undefined) ->
+  terl_string:op(Op, undefined);
+
 dispatch({list_type, T1}, Op, T2) ->
   terl_list:op(Op, T1, T2);
+
 dispatch(T, Op, T2) ->
   io:format("No dispatcher defined for Operator "
             ++ "~p and Type ~p and ~p~n", [Op, T, T2]),

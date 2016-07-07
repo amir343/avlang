@@ -356,10 +356,15 @@ type_check1([_ | Fs], Scopes) ->
   type_check1(Fs, Scopes).
 
 
-type_check_clause({clause, _L, _A, _G, Exprs}, Scopes) ->
-  lists:foldl(fun(Expr, {_, Scopes0}) ->
-                  type_check_expr(Expr, Scopes0)
-              end, {nil, Scopes}, Exprs).
+type_check_clause({clause, _L, Args, _G, Exprs}, Scopes0) ->
+  Scopes1 = lists:foldl(fun({var, _, N}, S0) ->
+                            insert_args(N, undefined, S0)
+                        end, Scopes0, [A || {Kind, _, _} = A
+                                              <- Args, Kind =:= var]),
+
+  lists:foldl(fun(Expr, {_, S0}) ->
+                  type_check_expr(Expr, S0)
+              end, {nil, Scopes1}, Exprs).
 
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
@@ -375,6 +380,12 @@ type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
 type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
 
+
+insert_args(V, Type, S) ->
+  LS = (S#scopes.local),
+  S#scopes{local =
+             LS#local_scope{vars =
+                              dict:store(V, Type, LS#local_scope.vars)}}.
 
 %% Tries to pattern match LHS and RHS and infer type
 %% for a variable in LHS from RHS. For sake of error handling
@@ -430,11 +441,13 @@ type_of({string, _, _}, S) ->
 
 type_of({op, L, Op, LHS, RHS}, Scopes0) ->
   {TL, Scopes1} = type_of(LHS, Scopes0),
-  is_valid_type(LHS, TL, Scopes1),
   {TR, Scopes2} = type_of(RHS, Scopes1),
-  is_valid_type(RHS, TR, Scopes2),
   Res = type_internal:dispatch(TL, Op, TR),
-  {assert_operator_validity(Res, Op, TL, TR, L), Scopes2};
+  Scopes3 = infer_from_op(Res, LHS, TL, Scopes2),
+  Scopes4 = infer_from_op(Res, RHS, TR, Scopes3),
+  is_valid_type(LHS, TL, Scopes4),
+  is_valid_type(RHS, TR, Scopes4),
+  {assert_operator_validity(Res, Op, TL, TR, L), Scopes4};
 
 type_of({op, L, Op, RHS}, Scopes0) ->
   {TR, Scopes1} = type_of(RHS, Scopes0),
@@ -534,6 +547,11 @@ assert_type_equality(Var, L, Declared, Inferred) ->
                  L, {declared_inferred_not_match, Var, Declared, Inferred}})
       end
   end.
+
+infer_from_op(Res, {var, _, _} = Var, undefined, Scopes) ->
+  update_local(Scopes, Var, Res);
+infer_from_op(_, _, _, Scopes) ->
+  Scopes.
 
 assert_operator_validity(Res, Op, TL, TR, L) ->
   InvalidOp = type_internal:invalid_operator(),
