@@ -316,55 +316,64 @@ type_terminals(W) ->
 
 %%%%%%%% Type check, scary stuff! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--record(scope, { local = dict:new()
-               , global = dict:new()
-               , state = #state{}
-               , final = false}).
+-record(local_scope, { args         = dict:new()
+                     , vars         = dict:new()
+                     , outer_scope  = nil}).
+
+-record(scopes, { local             = #local_scope{}
+                , global            = dict:new()
+                , state             = #state{}
+                , final             = false}).
+
 
 type_check0(Forms, State) ->
-  Scope0 = #scope{state = State},
-  Scope1 = type_check1(Forms, Scope0),
-  Scope2 = Scope1#scope{local = dict:new(), final = true},
-  type_check1(Forms, Scope2).
+  Scopes0 = #scopes{state = State},
+  Scopes1 = type_check1(Forms, Scopes0),
+  Scopes2 = Scopes1#scopes{final = true},
+  type_check1(Forms, Scopes2).
 
-type_check1([], Scope) ->
-  Scope;
+type_check1([], Scopes) ->
+  Scopes;
 
-type_check1([{function, _L, _N, _A, Cls} | Forms], Scope) ->
-  {TCls0, Scope1} = lists:foldl(fun(Cl, {Ts, Scope0}) ->
-                          {T, Scope1} = type_check_clause(Cl, Scope0),
-                          {[T | Ts], Scope1}
-                      end, {[], Scope}, Cls),
+type_check1([{function, _L, _N, _A, Cls} | Forms], Scopes) ->
+  {TCls0, Scopes1} =
+    lists:foldl(fun(Cl, {Ts, Scopes0}) ->
+                    {T, Scopes1} = type_check_clause(Cl, Scopes0),
+                    %% Also save the computed local scope with forms?
+                    Scopes2 = Scopes1#scopes{local = #local_scope{}},
+                    {[T | Ts], Scopes2}
+                end, {[], Scopes}, Cls),
+
   TCls1 = gb_sets:to_list(gb_sets:from_list(TCls0)),
   FunctionReturnType = case length(TCls1) of
                          1 -> hd(TCls1);
                          _ -> {union_type, TCls1}
                        end,
   io:format("Clause return type: ~p~n", [FunctionReturnType]),
-  type_check1(Forms, Scope1);
+  type_check1(Forms, Scopes1);
 
-type_check1([_ | Fs], Scope) ->
-  type_check1(Fs, Scope).
-
-
-type_check_clause({clause, _L, _A, _G, Exprs}, Scope) ->
-  lists:foldl(fun(Expr, {_, Scope0}) ->
-                  type_check_expr(Expr, Scope0)
-              end, {nil, Scope}, Exprs).
+type_check1([_ | Fs], Scopes) ->
+  type_check1(Fs, Scopes).
 
 
-type_check_expr({match, _L, LHS, RHS}, Scope0) ->
-  {Inferred, Scope1} = type_of(RHS, Scope0),
+type_check_clause({clause, _L, _A, _G, Exprs}, Scopes) ->
+  lists:foldl(fun(Expr, {_, Scopes0}) ->
+                  type_check_expr(Expr, Scopes0)
+              end, {nil, Scopes}, Exprs).
+
+
+type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
+  {Inferred, Scopes1} = type_of(RHS, Scopes0),
   VarTypes = reduce(LHS, Inferred, []),
-  Scope2 = update_local(Scope1, VarTypes),
-  {Inferred, Scope2};
-type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scope0) ->
-  {Inferred, Scope1} = type_of(RHS, Scope0),
+  Scopes2 = update_local(Scopes1, VarTypes),
+  {Inferred, Scopes2};
+type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
+  {Inferred, Scopes1} = type_of(RHS, Scopes0),
   assert_type_equality(Var, L, Type, Inferred),
-  Scope2 = update_local(Scope1, V, Inferred),
-  {Inferred, Scope2};
-type_check_expr(E, Scope0) ->
-  type_of(E, Scope0).
+  Scopes2 = update_local(Scopes1, V, Inferred),
+  {Inferred, Scopes2};
+type_check_expr(E, Scopes0) ->
+  type_of(E, Scopes0).
 
 
 %% Tries to pattern match LHS and RHS and infer type
@@ -419,50 +428,55 @@ type_of({atom, _, _}, S) ->
 type_of({string, _, _}, S) ->
   {type_internal:tag_built_in(string), S};
 
-type_of({op, L, Op, LHS, RHS}, Scope0) ->
-  {TL, Scope1} = type_of(LHS, Scope0),
-  is_valid_type(LHS, TL, Scope1),
-  {TR, Scope2} = type_of(RHS, Scope1),
-  is_valid_type(RHS, TR, Scope2),
+type_of({op, L, Op, LHS, RHS}, Scopes0) ->
+  {TL, Scopes1} = type_of(LHS, Scopes0),
+  is_valid_type(LHS, TL, Scopes1),
+  {TR, Scopes2} = type_of(RHS, Scopes1),
+  is_valid_type(RHS, TR, Scopes2),
   Res = type_internal:dispatch(TL, Op, TR),
-  {assert_operator_validity(Res, Op, TL, TR, L), Scope2};
+  {assert_operator_validity(Res, Op, TL, TR, L), Scopes2};
 
-type_of({op, L, Op, RHS}, Scope0) ->
-  {TR, Scope1} = type_of(RHS, Scope0),
-  is_valid_type(RHS, TR, Scope1),
+type_of({op, L, Op, RHS}, Scopes0) ->
+  {TR, Scopes1} = type_of(RHS, Scopes0),
+  is_valid_type(RHS, TR, Scopes1),
   Res = type_internal:dispatch(Op, TR),
-  {assert_operator_validity(Res, Op, TR, L), Scope1};
+  {assert_operator_validity(Res, Op, TR, L), Scopes1};
 
-type_of({var, _L, Var} = F, #scope{local = LD} = S) ->
-  T = case dict:find(Var, LD) of
-        {ok, V} -> V;
-        error -> undefined
-      end,
+type_of({var, _L, Var} = F, #scopes{local = LS} = S) ->
+  T = recursive_lookup(Var, LS),
   is_valid_type(F, T, S),
   {T, S};
 
-type_of({cons, L, H, T}, Scope0) ->
-  {TH, Scope1} = type_of(H, Scope0),
-  is_valid_type(H, TH, Scope1),
-  {TT0, Scope2} = type_of(T, Scope1),
+type_of({cons, L, H, T}, Scopes0) ->
+  {TH, Scopes1} = type_of(H, Scopes0),
+  is_valid_type(H, TH, Scopes1),
+  {TT0, Scopes2} = type_of(T, Scopes1),
   TT1 = unwrap_list(T, TT0, L),
-  is_valid_type(T, TT1, Scope2),
-  {assert_list_validity(TT1, TH, L), Scope2};
+  is_valid_type(T, TT1, Scopes2),
+  {assert_list_validity(TT1, TH, L), Scopes2};
 
-type_of({tuple, L, Es}, Scope0) ->
-  {TEs, Scope1} = lists:foldl(fun(E, {Ts, Scope}) ->
-                                  {T, Scope1} = type_of(E, Scope),
-                                  is_valid_type(E, T, Scope1),
-                                  {[T | Ts], Scope1}
-                              end, {[], Scope0}, Es),
-  {assert_tuple_validity(TEs, L), Scope1};
+type_of({tuple, L, Es}, Scopes0) ->
+  {TEs, Scopes1} = lists:foldl(fun(E, {Ts, Scopes}) ->
+                                  {T, Scopes1} = type_of(E, Scopes),
+                                  is_valid_type(E, T, Scopes1),
+                                  {[T | Ts], Scopes1}
+                              end, {[], Scopes0}, Es),
+  {assert_tuple_validity(TEs, L), Scopes1};
 
-type_of(T, Scope) ->
+type_of(T, Scopes) ->
   io:format("type_of ~p not implemented", [T]),
-  {undefined, Scope}.
+  {undefined, Scopes}.
+
+recursive_lookup(_, nil) ->
+  undefined;
+recursive_lookup(Var, #local_scope{vars = Vars, outer_scope = OS}) ->
+  case dict:find(Var, Vars) of
+    {ok, V} -> V;
+    error   -> recursive_lookup(Var, OS)
+  end.
 
 is_valid_type(E, T, S) ->
-  is_valid_type1(E, T, S#scope.final).
+  is_valid_type1(E, T, S#scopes.final).
 
 is_valid_type1(E, T, true) ->
   case T of
@@ -538,23 +552,29 @@ assert_operator_validity(Res, Op, TR, L) ->
     R -> R
   end.
 
-update_local(S=#scope{local = LD, final = false}, Var, Type) ->
+update_local(S=#scopes{final = false}, Var, Type) ->
   {var, _, V} = Var,
   case Type of
     undefined ->
       S;
     _ ->
       io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
-      S#scope{local = dict:store(V, Type, LD)}
+      LS = (S#scopes.local),
+      S#scopes{local =
+                 LS#local_scope{vars =
+                                  dict:store(V, Type, LS#local_scope.vars)}}
   end;
-update_local(S=#scope{local = LD, final = true}, Var, Type) ->
+update_local(S=#scopes{final = true}, Var, Type) ->
   {var, L, V} = Var,
   case Type of
     undefined ->
       throw({error, L, {can_not_infer_type, V}});
     _ ->
-      io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
-      S#scope{local = dict:store(V, Type, LD)}
+      io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
+      LS = (S#scopes.local),
+      S#scopes{local =
+                 LS#local_scope{vars =
+                                  dict:store(V, Type, LS#local_scope.vars)}}
   end.
 
 update_local(S, VarTypes) ->
