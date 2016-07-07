@@ -6,10 +6,13 @@
 
 -include("type_macros.hrl").
 
-op(_, undefined) -> ?UNDEFINED;
-
 op('++', string) -> ?STRING;
 op('--', string) -> ?STRING;
+
+op('++', undefined) -> ?STRING;
+op('--', undefined) -> ?STRING;
+
+op(_, undefined) -> ?UNDEFINED;
 
 op(_, _)         -> ?INVALID.
 

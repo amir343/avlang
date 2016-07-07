@@ -5,14 +5,21 @@
 
 -include("type_macros.hrl").
 
-op(_, undefined)       -> ?UNDEFINED;
-
 op('and', boolean)     -> ?BOOLEAN;
 op('or', boolean)      -> ?BOOLEAN;
 op('xor', boolean)     -> ?BOOLEAN;
 
 op('andalso', boolean) -> ?BOOLEAN;
 op('orelse', boolean)  -> ?BOOLEAN;
+
+op('and', undefined)   -> ?BOOLEAN;
+op('or', undefined)    -> ?BOOLEAN;
+op('xor', undefined)   -> ?BOOLEAN;
+
+op('andalso', undefined) -> ?BOOLEAN;
+op('orelse', undefined)  -> ?BOOLEAN;
+
+op(_, undefined)       -> ?UNDEFINED;
 
 op('/', _)            -> ?INVALID;
 op('+', _)            -> ?INVALID;
