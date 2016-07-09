@@ -284,6 +284,8 @@ extract_type_terminals(Tag, T) ->
                   case Tp of
                     {Tag, Type} ->
                       [Type | Acc];
+                    Tag ->
+                      [Tag | Acc];
                     _ -> Acc
                   end
               end, [], type_terminals(T)).
@@ -309,6 +311,8 @@ type_terminals({terl_type_ref, _, _} = T) ->
   [T];
 type_terminals({terl_user_defined, _} = T) ->
   [T];
+type_terminals(undefined) ->
+  [undefined];
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
 
@@ -346,7 +350,7 @@ type_check0(Forms, FileName, State) ->
 type_check1([], Scopes) ->
   Scopes;
 
-type_check1([{function, _L, N, _A, Cls} | Forms], Scopes) ->
+type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
   {TCls0, Scopes1} =
     lists:foldl(fun(Cl, {Ts, Scopes0}) ->
                     {T, Scopes1} = type_check_clause(Cl, Scopes0),
@@ -355,18 +359,61 @@ type_check1([{function, _L, N, _A, Cls} | Forms], Scopes) ->
                     {[T | Ts], Scopes2}
                 end, {[], Scopes}, Cls),
 
-  %% TCls1 = gb_sets:to_list(gb_sets:from_list(TCls0)),
-  %% FunctionReturnType = case length(TCls1) of
-  %%                        1 -> hd(TCls1);
-  %%                        _ -> {union_type, TCls1}
-  %%                      end,
-  %% io:format("~p :: ~p~n", [N, TCls0]),
-  [io:format("~p :: ~s~n", [N, pp_type({fun_type, I, O})]) || {I, O} <- TCls0],
-  type_check1(Forms, Scopes1);
+  {FType, Scopes2} = infer_function_type(N, A, TCls0, Scopes1),
+  Scopes3 = validate_fun_type(N, A, L, FType, Scopes2),
+  type_check1(Forms, Scopes3);
 
 type_check1([_ | Fs], Scopes) ->
   type_check1(Fs, Scopes).
 
+infer_function_type(N, Ar, TCls, S=#scopes{global = GS}) ->
+  TIn = infer_arg_types(Ar, TCls),
+  TOut = infer_return_type(TCls),
+  FType = {fun_type, TIn, TOut},
+  %% TODO: infer in/out types based on local calls if FType has undefined types
+  io:format("~p :: ~s~n", [N, pp_type(FType)]),
+  {FType, S#scopes{global = dict:append(N, FType, GS)}}.
+
+validate_fun_type(N, A, L, FType, S=#scopes{final = true}) ->
+  Undefs = extract_type_terminals(undefined, FType),
+  case length(Undefs) of
+    0 -> S;
+    _ ->
+      Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
+      S#scopes{errors = S#scopes.errors ++ [Err]}
+  end;
+validate_fun_type(_, _, _, _, S=#scopes{final = false}) ->
+  S.
+
+infer_return_type(TCls) ->
+  S = lists:foldl(fun({_, O}, Set) ->
+                      gb_sets:add(O, Set)
+                  end, gb_sets:new(), TCls),
+  Ts = gb_sets:to_list(S),
+  case length(Ts) of
+    1 ->
+      hd(Ts);
+    _ -> {union_type, Ts}
+  end.
+
+infer_arg_types(Ar, TCls) ->
+  case Ar of
+    0 -> [];
+    _ ->
+      Init = [gb_sets:new() || _ <- lists:seq(1, Ar)],
+      ZippedIn = lists:foldl(fun({Is, _}, Acc) ->
+                                 lists:zipwith(fun(Set, T) ->
+                                                   gb_sets:add(T, Set)
+                                               end, Acc, Is)
+                             end, Init, TCls),
+      lists:map(fun(Set) ->
+                    Ts = gb_sets:to_list(Set),
+                    case length(Ts) of
+                      1 -> hd(Ts);
+                      _ -> {union_type, Ts}
+                    end
+                end, ZippedIn)
+  end.
 
 type_check_clause({clause, _L, Args, _G, Exprs}, Scopes0) ->
   Scopes1 = lists:foldl(fun(Var, S0) ->
@@ -575,14 +622,14 @@ assert_operator_validity(Res, Op, TR, L) ->
   end.
 
 %% Returns {Type, Scopes}
-update_local(S=#scopes{final = Final}, Var, Type) ->
-  {var, L, V} = Var,
+update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
   case Type of
     undefined ->
       {Type,
        S#scopes{errors =
                   S#scopes.errors ++
-                  [{L, ?TYPE_MSG, {can_not_infer_type, V}} || Final =:= true]}};
+                  [{L, ?TYPE_MSG, {can_not_infer_type, V}}
+                   || Final =:= true andalso type_defined_in_local(V, S)]}};
     _ ->
       io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
       LS = (S#scopes.local),
@@ -593,6 +640,13 @@ update_local(S=#scopes{final = Final}, Var, Type) ->
                                    dict:store(V
                                              , MetaVar
                                              , LS#local_scope.vars)}}}
+  end.
+
+%% This is to avoid same variables errored multiple places
+type_defined_in_local(Var, #scopes{local = LS}) ->
+  case recursive_lookup(Var, LS) of
+    undefined -> false;
+    _         -> true
   end.
 
 %% Only returns Scope
@@ -684,8 +738,13 @@ format_error({not_list_cons_position, T}) ->
 format_error({match_on_unequally_sized_tuple, T}) ->
   io_lib:format(
     "Match on different tuple sizes. Right hand side tuple ~s is " ++
-    "different from left hand side",
+      "different from left hand side",
     [pp_type(T)]);
+format_error({can_not_infer_fun_type, N, A, FType}) ->
+  io_lib:format(
+    "Type system did its best to infer the type for '~p/~p' " ++
+      "and what it got was '~s'.",
+    [N, A, pp_type(FType)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -708,7 +767,12 @@ pp_type({tuple_type, Ts}) ->
   io_lib:format("{~s}", [list_to_string_sep(TT, $,)]);
 pp_type({fun_type, Is, O}) ->
   TIs = [pp_type(I) || I <- Is],
-  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, $,), pp_type(O)]);
+  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), pp_type(O)]);
+pp_type({union_type, Ts}) ->
+  TEs = [pp_type(T) || T <- Ts],
+  io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);
+pp_type(undefined) ->
+  "undefined";
 pp_type(T) ->
   T.
 
