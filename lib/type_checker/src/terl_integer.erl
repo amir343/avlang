@@ -6,8 +6,6 @@
 
 -include("type_macros.hrl").
 
-op(_, undefined)     -> ?UNDEFINED;
-
 op('/', integer)     -> ?INTEGER;
 op('+', integer)     -> ?INTEGER;
 op('-', integer)     -> ?INTEGER;
@@ -20,16 +18,34 @@ op('bsl', integer)   -> ?INTEGER;
 op('bsr', integer)   -> ?INTEGER;
 op('bnot', integer)  -> ?INTEGER;
 
-op('+', float)       -> ?FLOAT;
-op('-', float)       -> ?FLOAT;
-op('/', float)       -> ?FLOAT;
-op('*', float)       -> ?FLOAT;
-
 op('div', integer)   -> ?INTEGER;
 op('div', float)     -> ?INVALID;
 
 op('rem', integer)   -> ?INTEGER;
 op('rem', float)     -> ?INVALID;
+
+op('/', undefined)   -> ?INTEGER;
+op('+', undefined)   -> ?INTEGER;
+op('-', undefined)   -> ?INTEGER;
+op('*', undefined)   -> ?INTEGER;
+
+op('band', undefined) -> ?INTEGER;
+op('bor', undefined)  -> ?INTEGER;
+op('bxor', undefined)  -> ?INTEGER;
+op('bsl', undefined)  -> ?INTEGER;
+op('bsr', undefined)  -> ?INTEGER;
+op('bnot', undefined) -> ?INTEGER;
+
+op('div', undefined)  -> ?INTEGER;
+op('rem', undefined)  -> ?INTEGER;
+
+op(_, undefined)     -> ?UNDEFINED;
+
+
+op('+', float)       -> ?FLOAT;
+op('-', float)       -> ?FLOAT;
+op('/', float)       -> ?FLOAT;
+op('*', float)       -> ?FLOAT;
 
 op('==', _)          -> ?BOOLEAN;
 op('=:=', _)         -> ?BOOLEAN;
