@@ -266,6 +266,8 @@ no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
   end.
 
 fun_arity({fun_sig, _, _, {fun_type, I, _}}) ->
+  length(I);
+fun_arity({fun_type, I, _}) ->
   length(I).
 
 extract_user_defined_types(T) ->
@@ -351,9 +353,10 @@ type_check1([], Scopes) ->
   Scopes;
 
 type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
+  Sig = find_fun_sig(N, A, Scopes),
   {TCls0, Scopes1} =
     lists:foldl(fun(Cl, {Ts, Scopes0}) ->
-                    {T, Scopes1} = type_check_clause(Cl, Scopes0),
+                    {T, Scopes1} = type_check_clause(Sig, Cl, Scopes0),
                     %% Also save the computed local scope with forms?
                     Scopes2 = Scopes1#scopes{local = #local_scope{}},
                     {[T | Ts], Scopes2}
@@ -365,6 +368,16 @@ type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
 
 type_check1([_ | Fs], Scopes) ->
   type_check1(Fs, Scopes).
+
+find_fun_sig(N, A, #scopes{state = State}) ->
+  #state{fun_sigs = FS} = State,
+  case dict:find(N, FS) of
+    {ok, Vs} ->
+      hd([T || {fun_sig, _, _, T} <- Vs, fun_arity(T) =:= A] ++
+           [undefined]);
+    error -> undefined
+  end.
+
 
 infer_function_type(N, Ar, TCls, S=#scopes{global = GS}) ->
   TIn = infer_arg_types(Ar, TCls),
@@ -415,17 +428,29 @@ infer_arg_types(Ar, TCls) ->
                 end, ZippedIn)
   end.
 
-type_check_clause({clause, _L, Args, _G, Exprs}, Scopes0) ->
-  Scopes1 = lists:foldl(fun(Var, S0) ->
+type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
+  Scope1 = lists:foldl(fun(Var, S0) ->
                             insert_args(Var, undefined, S0)
-                        end, Scopes0, [A || {Kind, _, _} = A
+                        end, Scope0, [A || {Kind, _, _} = A
                                               <- Args, Kind =:= var]),
+  type_check_clause0(Cl, Scope1);
 
-  {TOut, Scopes2} = lists:foldl(fun(Expr, {_, S0}) ->
+type_check_clause({fun_type, Is, _}, {clause, _, Args, _, _} = Cl, Scopes0) ->
+  ArgTypes = lists:zip(Args, Is),
+  %% TODO: validity of declated types for args
+  VarTypes = [VT || {{Kind, _, _}, _} = VT <- ArgTypes, Kind =:= var],
+  Scopes1 = lists:foldl(fun({V, T}, S0) ->
+                            insert_args(V, T, S0)
+                        end, Scopes0, VarTypes),
+  type_check_clause0(Cl, Scopes1).A
+
+%% function clause
+type_check_clause0({clause, _L, Args, _G, Exprs}, Scopes0) ->
+  {TOut, Scopes1} = lists:foldl(fun(Expr, {_, S0}) ->
                             type_check_expr(Expr, S0)
-                        end, {nil, Scopes1}, Exprs),
-  TIn = [element(1, type_of(Arg, Scopes2)) || Arg <- Args],
-  {{TIn, TOut}, check_local_scope(Scopes2)}.
+                        end, {nil, Scopes0}, Exprs),
+  TIn = [element(1, type_of(Arg, Scopes1)) || Arg <- Args],
+  {{TIn, TOut}, check_local_scope(Scopes1)}.
 
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
