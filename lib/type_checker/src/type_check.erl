@@ -363,7 +363,7 @@ type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
                 end, {[], Scopes}, Cls),
 
   {FType, Scopes2} = infer_function_type(N, A, TCls0, Scopes1),
-  Scopes3 = validate_fun_type(N, A, L, FType, Scopes2),
+  Scopes3 = validate_fun_type(N, A, L, FType, Sig, Scopes2),
   type_check1(Forms, Scopes3);
 
 type_check1([_ | Fs], Scopes) ->
@@ -384,18 +384,30 @@ infer_function_type(N, Ar, TCls, S=#scopes{global = GS}) ->
   TOut = infer_return_type(TCls),
   FType = {fun_type, TIn, TOut},
   %% TODO: infer in/out types based on local calls if FType has undefined types
-  io:format("~p :: ~s~n", [N, pp_type(FType)]),
   {FType, S#scopes{global = dict:append(N, FType, GS)}}.
 
-validate_fun_type(N, A, L, FType, S=#scopes{final = true}) ->
+validate_fun_type(N, A, L, FType, Sig, S=#scopes{final = true}) ->
   Undefs = extract_type_terminals(undefined, FType),
-  case length(Undefs) of
-    0 -> S;
-    _ ->
-      Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
-      S#scopes{errors = S#scopes.errors ++ [Err]}
+  S1 = case length(Undefs) of
+         0 -> S;
+         _ ->
+           Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
+           S#scopes{errors = S#scopes.errors ++ [Err]}
+       end,
+  case Sig of
+    undefined -> S1;
+    FSig ->
+      case type_equivalent(FSig, FType) of
+        false ->
+          Err2 = {L, ?TYPE_MSG,
+                  {declared_inferred_fun_type_do_not_match, N, A, FSig, FType}},
+          S#scopes{errors = S#scopes.errors ++ [Err2]};
+        true ->
+          S1
+      end
   end;
-validate_fun_type(_, _, _, _, S=#scopes{final = false}) ->
+
+validate_fun_type(_, _, _, _, _, S=#scopes{final = false}) ->
   S.
 
 infer_return_type(TCls) ->
@@ -442,7 +454,7 @@ type_check_clause({fun_type, Is, _}, {clause, _, Args, _, _} = Cl, Scopes0) ->
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
                             insert_args(V, T, S0)
                         end, Scopes0, VarTypes),
-  type_check_clause0(Cl, Scopes1).A
+  type_check_clause0(Cl, Scopes1).
 
 %% function clause
 type_check_clause0({clause, _L, Args, _G, Exprs}, Scopes0) ->
@@ -681,9 +693,27 @@ update_local(S0, VarTypes) ->
                   S1
              end, S0, VarTypes).
 
+%% Check if given two types are equivalent
+type_equivalent({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
+  Is1 =:= Is2 andalso
+    type_equivalent(O1, O2);
+type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
+  (length(Ts1) =:= length(Ts2)) andalso
+    lists:all(fun(E) -> E =:= true
+              end,
+              [lists:any(
+                 fun(E1) ->
+                     E1 =:= true
+                 end, [type_equivalent(T, TT) || TT <- Ts2])
+               || T <- Ts1]);
+type_equivalent(T, T) ->
+  true;
+type_equivalent(_, _) ->
+  false.
 
 
-%%% Format errors
+%%% Format errors --------------------------------------------------------------
+
 format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
   io_lib:format(
     "Duplicate function signature definitions '~w' at line ~p and ~p.",
@@ -770,6 +800,11 @@ format_error({can_not_infer_fun_type, N, A, FType}) ->
     "Type system did its best to infer the type for '~p/~p' " ++
       "and what it got was '~s'.",
     [N, A, pp_type(FType)]);
+format_error({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
+  io_lib:format(
+    "Declared function signature for '~p/~p' does not match the inferred " ++
+      "one.~n\t\tExpected:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
+    [N, A, pp_type(Sig), pp_type(FType)]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
