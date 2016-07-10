@@ -14,26 +14,37 @@ dispatch(undefined, _, undefined) ->
 dispatch(undefined, Op, T) ->
   dispatch(T, Op, undefined);
 
+dispatch({_, integer} = T, Op, {union_type, Ts}) ->
+  [dispatch(T, Op, T1) || T1 <- Ts];
 dispatch({_, integer}, Op, {_, T}) ->
   terl_integer:op(Op, T);
 dispatch({_, integer}, Op, undefined) ->
   terl_integer:op(Op, undefined);
 
+dispatch({_, float} = T, Op, {union_type, Ts}) ->
+  [dispatch(T, Op, T1) || T1 <- Ts];
 dispatch({_, float}, Op, {_, T}) ->
   terl_float:op(Op, T);
 dispatch({_, float}, Op, undefined) ->
   terl_float:op(Op, undefined);
 
+
+dispatch({_, boolean} = T, Op, {union_type, Ts}) ->
+  [dispatch(T, Op, T1) || T1 <- Ts];
 dispatch({_, boolean}, Op, {_, T}) ->
   terl_boolean:op(Op, T);
 dispatch({_, boolean}, Op, undefined) ->
   terl_boolean:op(Op, undefined);
 
+dispatch({_, string} = T, Op, {union_type, Ts}) ->
+  [dispatch(T, Op, T1) || T1 <- Ts];
 dispatch({_, string}, Op, {_, T}) ->
   terl_string:op(Op, T);
 dispatch({_, string}, Op, undefined) ->
   terl_string:op(Op, undefined);
 
+dispatch({list_type, T1}, Op, {union_type, Ts}) ->
+  [terl_list:op(Op, T1, T2) || T2 <- Ts];
 dispatch({list_type, T1}, Op, T2) ->
   terl_list:op(Op, T1, T2);
 
@@ -54,6 +65,8 @@ dispatch(Op, {_, string}) ->
   terl_string:op(Op);
 dispatch(Op, {_, list_type}) ->
   terl_list:op(Op);
+dispatch(Op, {union_type, Ts}) ->
+  [dispatch(Op, T) || T <- Ts];
 dispatch(Op, T) ->
   io:format("No dispatcher defined for Operator ~p and Type ~p~n", [Op, T]),
   undefined.

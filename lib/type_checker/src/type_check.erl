@@ -342,7 +342,9 @@ type_check0(Forms, FileName, State) ->
   Scopes1 = type_check1(Forms, Scopes0),
 
   %% Pass 2:
-  #scopes{errors = Errs} = type_check1(Forms, Scopes1#scopes{final = true}),
+  #scopes{errors = Errs0} = type_check1(Forms, Scopes1#scopes{final = true}),
+  Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
+                   , gb_sets:to_list(gb_sets:from_list(Errs0))),
 
   case length(Errs) of
     0 -> {ok, [], State};
@@ -411,9 +413,10 @@ validate_fun_type(_, _, _, _, _, S=#scopes{final = false}) ->
   S.
 
 infer_return_type(TCls) ->
-  S = lists:foldl(fun({_, O}, Set) ->
+  TOut = [O || {_, O} <- TCls],
+  S = lists:foldl(fun(O, Set) ->
                       gb_sets:add(O, Set)
-                  end, gb_sets:new(), TCls),
+                  end, gb_sets:new(), TOut),
   Ts = gb_sets:to_list(S),
   case length(Ts) of
     1 ->
@@ -422,15 +425,16 @@ infer_return_type(TCls) ->
   end.
 
 infer_arg_types(Ar, TCls) ->
+  TIn = [Is || {Is, _} <- TCls],
   case Ar of
     0 -> [];
     _ ->
       Init = [gb_sets:new() || _ <- lists:seq(1, Ar)],
-      ZippedIn = lists:foldl(fun({Is, _}, Acc) ->
+      ZippedIn = lists:foldl(fun(Is, Acc) ->
                                  lists:zipwith(fun(Set, T) ->
                                                    gb_sets:add(T, Set)
                                                end, Acc, Is)
-                             end, Init, TCls),
+                             end, Init, TIn),
       lists:map(fun(Set) ->
                     Ts = gb_sets:to_list(Set),
                     case length(Ts) of
@@ -547,18 +551,18 @@ type_of({atom, _, _}, S) ->
 type_of({string, _, _}, S) ->
   {type_internal:tag_built_in(string), S};
 
-type_of({op, L, Op, LHS, RHS}, Scopes0) ->
+type_of({op, L, Op, LHS, RHS} = Expr, Scopes0) ->
   {TL0, Scopes1} = type_of(LHS, Scopes0),
   {TR0, Scopes2} = type_of(RHS, Scopes1),
-  Res = type_internal:dispatch(TL0, Op, TR0),
-  {TL1, Scopes3} = infer_from_op(Res, LHS, TL0, Scopes2),
-  {TR1, Scopes4} = infer_from_op(Res, RHS, TR0, Scopes3),
-  {assert_operator_validity(Res, Op, TL1, TR1, L), Scopes4};
+  {Res, Scopes3} = dispatch(Expr, L, TL0, Op, TR0, Scopes2),
+  {TL1, Scopes4} = infer_from_op(Res, LHS, TL0, Scopes3),
+  {TR1, Scopes5} = infer_from_op(Res, RHS, TR0, Scopes4),
+  {assert_operator_validity(Res, Op, TL1, TR1, L), Scopes5};
 
-type_of({op, L, Op, RHS}, Scopes0) ->
+type_of({op, L, Op, RHS} = Expr, Scopes0) ->
   {TR, Scopes1} = type_of(RHS, Scopes0),
-  Res = type_internal:dispatch(Op, TR),
-  {assert_operator_validity(Res, Op, TR, L), Scopes1};
+  {Res, Scopes2} = dispatch(Expr, L, Op, TR, Scopes1),
+  {assert_operator_validity(Res, Op, TR, L), Scopes2};
 
 type_of({var, _L, Var}, #scopes{local = LS} = S) ->
   T = recursive_lookup(Var, LS),
@@ -580,6 +584,39 @@ type_of({tuple, L, Es}, Scopes0) ->
 type_of(T, Scopes) ->
   io:format("type_of ~p not implemented", [T]),
   {undefined, Scopes}.
+
+dispatch(Expr, L, TL, Op, TR, Scopes) ->
+  dispatch_result(Expr, type_internal:dispatch(TL, Op, TR), L, Scopes).
+
+dispatch(Expr, L, Op, TR, Scopes) ->
+  dispatch_result(Expr, type_internal:dispatch(Op, TR), L, Scopes).
+
+%% TODO: This is ugly code! Try to refactor it :D
+dispatch_result(Expr, Res, L, Scopes=#scopes{final = Final, errors = Errs}) ->
+  case Res of
+    Ls when is_list(Ls) ->
+      Ts = lists:filter(fun(T) -> T =/= undefined andalso
+                         T =/= type_internal:invalid_operator() end, Ls),
+      case length(Ts) of
+        0 ->
+          {hd(Ls), Scopes};
+        1 ->
+          {hd(Ts), Scopes};
+        _ ->
+          case Final of
+            true ->
+              {undefined,
+               Scopes#scopes{errors = Errs ++
+                               [{L, ?TYPE_MSG,
+                                 {multiple_inferred_type, Expr, Ts}}]}};
+            false ->
+              {undefined, Scopes}
+          end
+      end;
+    T ->
+      {T, Scopes}
+  end.
+
 
 recursive_lookup(_, nil) ->
   undefined;
@@ -638,6 +675,8 @@ assert_type_equality(Var, L, Declared, Inferred) ->
 
 infer_from_op(Res, {var, _, _} = Var, undefined, Scopes) ->
   update_local(Scopes, Var, Res);
+infer_from_op(Res, {var, _, _} = Var, {union_type, _}, Scopes) ->
+  update_local(Scopes, Var, Res);
 infer_from_op(_, _, Type, Scopes) ->
   {Type, Scopes}.
 
@@ -660,23 +699,24 @@ assert_operator_validity(Res, Op, TR, L) ->
 
 %% Returns {Type, Scopes}
 update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
+  MetaVar = #meta_var{type = Type, line = L},
+  LS = (S#scopes.local),
+  S1 = S#scopes{local =
+                  LS#local_scope{vars =
+                                   dict:store(V
+                                             , MetaVar
+                                             , LS#local_scope.vars)}},
   case Type of
     undefined ->
+      io:format("Var=~p, Type=undefined~n", [V]),
       {Type,
-       S#scopes{errors =
+       S1#scopes{errors =
                   S#scopes.errors ++
                   [{L, ?TYPE_MSG, {can_not_infer_type, V}}
                    || Final =:= true andalso type_defined_in_local(V, S)]}};
     _ ->
       io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
-      LS = (S#scopes.local),
-      MetaVar = #meta_var{type = Type, line = L},
-      {Type,
-       S#scopes{local =
-                  LS#local_scope{vars =
-                                   dict:store(V
-                                             , MetaVar
-                                             , LS#local_scope.vars)}}}
+      {Type, S1}
   end.
 
 %% This is to avoid same variables errored multiple places
@@ -695,7 +735,12 @@ update_local(S0, VarTypes) ->
 
 %% Check if given two types are equivalent
 type_equivalent({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
-  Is1 =:= Is2 andalso
+  length(Is1) =:= length(Is2)
+    andalso
+    lists:all(fun(E) -> E =:= true end,
+              [type_equivalent(T1, T2) ||
+                {T1, T2} <- lists:zip(Is1, Is2)])
+    andalso
     type_equivalent(O1, O2);
 type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
@@ -805,6 +850,10 @@ format_error({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
     "Declared function signature for '~p/~p' does not match the inferred " ++
       "one.~n\t\tExpected:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
     [N, A, pp_type(Sig), pp_type(FType)]);
+format_error({multiple_inferred_type, Expr, Ts}) ->
+  io_lib:format(
+    "Multiple types can be inferred for '~s':~n\t\t~s",
+    [pp_expr(Expr), list_to_string_sep([pp_type(T) || T <- Ts], ", ")]);
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -837,7 +886,13 @@ pp_type(T) ->
   T.
 
 pp_expr({var, _, V}) ->
-  io_lib:format("'~s'", [V]);
+  io_lib:format("~s", [V]);
+pp_expr({integer, _, V}) ->
+  io_lib:format("~p", [V]);
+pp_expr({atom, _, V}) ->
+  io_lib:format("~p", [V]);
+pp_expr({op, _, Op, L, R}) ->
+  io_lib:format("~s ~s ~s", [pp_expr(L), Op, pp_expr(R)]);
 pp_expr(V) ->
   io_lib:format("~p", [V]).
 
