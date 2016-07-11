@@ -23,7 +23,7 @@
         ]).
 
 -record(state, { fun_sigs      = dict:new()
-                 %% {key, [{fun_sig, L, N, T}]}
+                 %% {key, [{fun_sig, L, N, [T]}]}
                , type_aliases  = dict:new()
                  %% {Key, {type_alias, L, N, T}}
                , type_cons     = dict:new()
@@ -69,6 +69,7 @@ type_lint(Forms, FileName, _Opts, State) ->
   io:format("~p~n", [Forms]),
   St = collect_types(Forms, State),
   check_consistency_type_cons(St, FileName),
+  check_consistency_fun_sigs(St, FileName),
   Ws1 = check_unsued_user_defined_types(FileName, St),
   check_undefined_types(FileName, St),
   match_fun_sig_with_declared_fun(St),
@@ -81,8 +82,8 @@ type_check(Forms, FileName, _Opts, State) ->
   type_check0(Forms, FileName, State).
 
 %% Collect forms of interest into state record
-collect_types([{fun_sig, L, _, T} = Form | Forms], St0) ->
-  St1 = extract_user_defined_types_with_locs(T, L, St0),
+collect_types([{fun_sig, L, _, Ts} = Form | Forms], St0) ->
+  St1 = extract_user_defined_types_with_locs(Ts, L, St0),
   collect_types(Forms, add_fun_sigs(Form, St1));
 collect_types([{type_alias, L, _, T} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(T, L, St0),
@@ -235,6 +236,21 @@ check_consistency_type_cons(#state{type_cons = TC}, FN) ->
                     no_terl_type_used_lhs(E)
                 end, dict:to_list(TC)).
 
+
+%% All fun sigs clauses must have same arity
+check_consistency_fun_sigs(#state{fun_sigs = FS}, _FN) ->
+ [check_consistency_fun_sigs0(Sig) || {_, Sigs} <- dict:to_list(FS),
+                                      Sig <- Sigs].
+
+check_consistency_fun_sigs0({fun_sig, L, N, Cls}) ->
+  SetArity = gb_sets:from_list([fun_arity(Cl) || Cl <- Cls]),
+  case gb_sets:size(SetArity) of
+    1 ->
+      ok;
+    _ ->
+      throw({error, L, {fun_sig_clause_arity_not_match, N}})
+  end.
+
 %% Check if that all defined generic type parameters in the left hand side of
 %% type constructor is used in the right hand side and vice versa
 check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
@@ -265,11 +281,16 @@ no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
       throw({error, L, {tc_only_generic_type_lhs, TI2}})
   end.
 
-fun_arity({fun_sig, _, _, {fun_type, I, _}}) ->
+fun_arity({fun_sig, _, _, [{fun_type, I, _} | _]}) ->
   length(I);
 fun_arity({fun_type, I, _}) ->
+  length(I);
+fun_arity([{fun_type, I, _} | _]) ->
   length(I).
 
+
+extract_user_defined_types(Ts) when is_list(Ts) ->
+  lists:flatten([extract_user_defined_types(T) || T <- Ts]);
 extract_user_defined_types(T) ->
   extract_type_terminals(terl_user_defined, T).
 
@@ -313,6 +334,8 @@ type_terminals({terl_type_ref, _, _} = T) ->
   [T];
 type_terminals({terl_user_defined, _} = T) ->
   [T];
+type_terminals({terl_atom_type, _} = T) ->
+  [T];
 type_terminals(undefined) ->
   [undefined];
 type_terminals(W) ->
@@ -355,17 +378,17 @@ type_check1([], Scopes) ->
   Scopes;
 
 type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
-  Sig = find_fun_sig(N, A, Scopes),
+  Sigs = find_fun_sig(N, A, Scopes),
   {TCls0, Scopes1} =
     lists:foldl(fun(Cl, {Ts, Scopes0}) ->
-                    {T, Scopes1} = type_check_clause(Sig, Cl, Scopes0),
+                    {T, Scopes1} = type_check_clause(Sigs, Cl, Scopes0),
                     %% Also save the computed local scope with forms?
                     Scopes2 = Scopes1#scopes{local = #local_scope{}},
                     {[T | Ts], Scopes2}
                 end, {[], Scopes}, Cls),
 
   {FType, Scopes2} = infer_function_type(N, A, TCls0, Scopes1),
-  Scopes3 = validate_fun_type(N, A, L, FType, Sig, Scopes2),
+  Scopes3 = validate_fun_type(N, A, L, FType, Sigs, Scopes2),
   type_check1(Forms, Scopes3);
 
 type_check1([_ | Fs], Scopes) ->
@@ -398,7 +421,9 @@ validate_fun_type(N, A, L, FType, Sig, S=#scopes{final = true}) ->
        end,
   case Sig of
     undefined -> S1;
-    FSig ->
+    FSig0 ->
+      %% TODO: Fix this!
+      FSig = hd(FSig0),
       case type_equivalent(FSig, FType) of
         false ->
           Err2 = {L, ?TYPE_MSG,
@@ -451,7 +476,9 @@ type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
                                               <- Args, Kind =:= var]),
   type_check_clause0(Cl, Scope1);
 
-type_check_clause({fun_type, Is, _}, {clause, _, Args, _, _} = Cl, Scopes0) ->
+%% TODO: Fix this!
+type_check_clause([{fun_type, Is, _}| _],
+                  {clause, _, Args, _, _} = Cl, Scopes0) ->
   ArgTypes = lists:zip(Args, Is),
   %% TODO: validity of declated types for args
   VarTypes = [VT || {{Kind, _, _}, _} = VT <- ArgTypes, Kind =:= var],
@@ -540,29 +567,29 @@ type_of({nil, _}, S) ->
   {{list_type, nothing}, S};
 
 type_of({integer, _, _}, S) ->
-  {type_internal:tag_built_in(integer), S};
+  {type_internal:tag_built_in('Integer'), S};
 
 type_of({float, _, _}, S) ->
-  {type_internal:tag_built_in(float), S};
+  {type_internal:tag_built_in('Float'), S};
 
 type_of({atom, _, _}, S) ->
-  {type_internal:tag_built_in(atom), S};
+  {type_internal:tag_built_in('Atom'), S};
 
 type_of({string, _, _}, S) ->
-  {type_internal:tag_built_in(string), S};
+  {type_internal:tag_built_in('String'), S};
 
-type_of({op, L, Op, LHS, RHS} = Expr, Scopes0) ->
+type_of({op, L, Op, LHS, RHS}, Scopes0) ->
   {TL0, Scopes1} = type_of(LHS, Scopes0),
   {TR0, Scopes2} = type_of(RHS, Scopes1),
-  {Res, Scopes3} = dispatch(Expr, L, TL0, Op, TR0, Scopes2),
-  {TL1, Scopes4} = infer_from_op(Res, LHS, TL0, Scopes3),
-  {TR1, Scopes5} = infer_from_op(Res, RHS, TR0, Scopes4),
-  {assert_operator_validity(Res, Op, TL1, TR1, L), Scopes5};
+  Res = dispatch(TL0, Op, TR0),
+  {TL1, Scopes3} = infer_from_op(Res, LHS, TL0, Scopes2),
+  {TR1, Scopes4} = infer_from_op(Res, RHS, TR0, Scopes3),
+  {assert_operator_validity(Res, Op, TL1, TR1, L), Scopes4};
 
-type_of({op, L, Op, RHS} = Expr, Scopes0) ->
+type_of({op, L, Op, RHS}, Scopes0) ->
   {TR, Scopes1} = type_of(RHS, Scopes0),
-  {Res, Scopes2} = dispatch(Expr, L, Op, TR, Scopes1),
-  {assert_operator_validity(Res, Op, TR, L), Scopes2};
+  Res = dispatch(Op, TR),
+  {assert_operator_validity(Res, Op, TR, L), Scopes1};
 
 type_of({var, _L, Var}, #scopes{local = LS} = S) ->
   T = recursive_lookup(Var, LS),
@@ -585,36 +612,24 @@ type_of(T, Scopes) ->
   io:format("type_of ~p not implemented", [T]),
   {undefined, Scopes}.
 
-dispatch(Expr, L, TL, Op, TR, Scopes) ->
-  dispatch_result(Expr, type_internal:dispatch(TL, Op, TR), L, Scopes).
+dispatch(TL, Op, TR) ->
+  dispatch_result(type_internal:dispatch(TL, Op, TR)).
 
-dispatch(Expr, L, Op, TR, Scopes) ->
-  dispatch_result(Expr, type_internal:dispatch(Op, TR), L, Scopes).
+dispatch(Op, TR) ->
+  dispatch_result(type_internal:dispatch(Op, TR)).
 
-%% TODO: This is ugly code! Try to refactor it :D
-dispatch_result(Expr, Res, L, Scopes=#scopes{final = Final, errors = Errs}) ->
+dispatch_result(Res) ->
   case Res of
     Ls when is_list(Ls) ->
-      Ts = lists:filter(fun(T) -> T =/= undefined andalso
-                         T =/= type_internal:invalid_operator() end, Ls),
+      Ts = gb_sets:to_list(gb_sets:from_list(Ls)),
       case length(Ts) of
-        0 ->
-          {hd(Ls), Scopes};
         1 ->
-          {hd(Ts), Scopes};
+          hd(Ts);
         _ ->
-          case Final of
-            true ->
-              {undefined,
-               Scopes#scopes{errors = Errs ++
-                               [{L, ?TYPE_MSG,
-                                 {multiple_inferred_type, Expr, Ts}}]}};
-            false ->
-              {undefined, Scopes}
-          end
+          undefined
       end;
     T ->
-      {T, Scopes}
+      T
   end.
 
 
@@ -783,6 +798,10 @@ format_error({no_matching_fun_decl_for_fun_sig, N, Ar, L2}) ->
     "No function implementation matched with declared function signature "
     ++ "'~w'/~p at line ~p.",
     [N, Ar, L2]);
+format_error({fun_sig_clause_arity_not_match, N}) ->
+  io_lib:format(
+    "Function signature ~w has clauses with different arity.",
+   [N]);
 format_error({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
     "Multiple function implementations matched with declared function"
