@@ -6,8 +6,8 @@
 
 -include("type_macros.hrl").
 
-op('++', string) -> ?STRING;
-op('--', string) -> ?STRING;
+op('++', 'String') -> ?STRING;
+op('--', 'String') -> ?STRING;
 
 op('++', undefined) -> ?STRING;
 op('--', undefined) -> ?STRING;

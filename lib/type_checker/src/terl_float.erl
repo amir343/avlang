@@ -8,15 +8,15 @@
 
 op(_, undefined)  -> ?UNDEFINED;
 
-op('/', float)    -> ?FLOAT;
-op('+', float)    -> ?FLOAT;
-op('-', float)    -> ?FLOAT;
-op('*', float)    -> ?FLOAT;
+op('/', 'Float')    -> ?FLOAT;
+op('+', 'Float')    -> ?FLOAT;
+op('-', 'Float')    -> ?FLOAT;
+op('*', 'Float')    -> ?FLOAT;
 
-op('+', integer)  -> ?FLOAT;
-op('*', integer)  -> ?FLOAT;
-op('/', integer)  -> ?FLOAT;
-op('-', integer)  -> ?FLOAT;
+op('+', 'Integer')  -> ?FLOAT;
+op('*', 'Integer')  -> ?FLOAT;
+op('/', 'Integer')  -> ?FLOAT;
+op('-', 'Integer')  -> ?FLOAT;
 
 op('div', _)      -> ?INVALID;
 op('rem', _)      -> ?INVALID;
@@ -27,17 +27,17 @@ op('=:=', _)      -> ?BOOLEAN;
 op('/=', _)       -> ?BOOLEAN;
 op('=/=', _)      -> ?BOOLEAN;
 
-op('>=', integer) -> ?BOOLEAN;
-op('>=', float)   -> ?BOOLEAN;
+op('>=', 'Integer') -> ?BOOLEAN;
+op('>=', 'Float')   -> ?BOOLEAN;
 
-op('=<', integer) -> ?BOOLEAN;
-op('=<', float)   -> ?BOOLEAN;
+op('=<', 'Integer') -> ?BOOLEAN;
+op('=<', 'Float')   -> ?BOOLEAN;
 
-op('<', integer)  -> ?BOOLEAN;
-op('<', float)    -> ?BOOLEAN;
+op('<', 'Integer')  -> ?BOOLEAN;
+op('<', 'Float')    -> ?BOOLEAN;
 
-op('>', integer)  -> ?BOOLEAN;
-op('>', float)    -> ?BOOLEAN;
+op('>', 'Integer')  -> ?BOOLEAN;
+op('>', 'Float')    -> ?BOOLEAN;
 
 op(_, _)          -> ?INVALID.
 

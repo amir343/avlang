@@ -51,10 +51,10 @@ type_spec spec_fun typed_exprs typed_record_fields field_types field_type
 map_pair_types map_pair_type
 bin_base_type bin_unit_type type_200 type_300 type_400 type_500
 %% Typed Erlang non-terminals
-terl_fun_type terl_type_alias terl_gen_type terl_list_type terl_inputs
-terl_inputs_100 terl_input terl_input_top terl_type terl_tuple_type terl_output
-terl_output_top terl_record_field_types terl_record_field_type terl_type_cons
-terl_type_params terl_cons_params terl_cons_param.
+terl_fun_type terl_fun_type_100 terl_type_alias terl_gen_type terl_list_type
+terl_inputs terl_inputs_100 terl_input terl_input_top terl_type terl_tuple_type
+terl_output terl_output_top terl_record_field_types terl_record_field_type
+terl_type_cons terl_type_params terl_cons_params terl_cons_param.
 
 
 Terminals
@@ -96,20 +96,22 @@ attribute -> '-' 'spec' type_spec            : build_type_spec('$2', '$3').
 attribute -> '-' 'callback' type_spec        : build_type_spec('$2', '$3').
 
 %%%% Typed Erlang grammar
-terl_type_alias -> atom atom '::' terl_output_top dot
+terl_type_alias -> atom var '::' terl_output_top dot
                      : mk_type_alias('$1', '$2', '$4').
 
-terl_fun_type -> atom '::' terl_gen_type dot
+terl_fun_type -> atom '::' terl_fun_type_100 dot
                    : terl_build_fun_sig('$1', '$3').
 
-terl_type_cons -> atom atom '(' terl_cons_params ')' '::' terl_output_top dot
+terl_fun_type_100 -> terl_gen_type : ['$1'].
+terl_fun_type_100 -> terl_gen_type ';' terl_fun_type_100 : ['$1' | '$3'].
+
+terl_type_cons -> atom var '(' terl_cons_params ')' '::' terl_output_top dot
                     : mk_type_cons('$1', '$2', '$4', '$7').
 
 terl_cons_params -> terl_cons_param ',' terl_cons_params : ['$1' | '$3'].
 terl_cons_params -> terl_cons_param : ['$1'].
 
-terl_cons_param -> atom : terl_build_type(element(3, '$1')).
-terl_cons_param -> var : terl_build_generic_type('$1').
+terl_cons_param -> var : mk_type_cons_param('$1').
 
 terl_gen_type -> terl_inputs '->' terl_output_top : {fun_type, '$1', '$3'}.
 
@@ -132,11 +134,11 @@ terl_type -> '{' terl_tuple_type '}' : {tuple_type, '$2'}.
 terl_type -> '#' atom '{' terl_record_field_types '}'
                : terl_record_type('$2', '$4').
 terl_type -> '#' atom '{' '}' : terl_record_type('$2', []).
-terl_type -> var : terl_build_generic_type('$1').
-terl_type -> atom : terl_build_type(element(3, '$1')).
-terl_type -> atom ':' atom
+terl_type -> var : terl_build_type(element(3, '$1')).
+terl_type -> atom : {terl_atom_type, element(3, '$1')}.
+terl_type -> atom ':' var
                : {terl_type_ref, element(3, '$1'), element(3, '$3')}.
-terl_type -> atom '(' terl_type_params ')'
+terl_type -> var '(' terl_type_params ')'
                : {type_instance, element(3, '$1'), '$3'}.
 
 terl_type_params -> terl_type : ['$1'].
@@ -1386,22 +1388,11 @@ modify_anno1(E, Ac, _Mf) when not is_tuple(E), not is_list(E) -> {E,Ac}.
 
 %% Typed Erlang helper functions
 
-terl_build_fun_sig({atom, L, Name}, T) ->
-  {fun_sig, L, Name, T}.
+terl_build_fun_sig({atom, L, Name}, Ts) ->
+  {fun_sig, L, Name, Ts}.
 
 terl_build_type(Tag) ->
   type_internal:type_tag(Tag).
-
-terl_build_generic_type({var, L, Name}) ->
-  case type_internal:built_in(Name) of
-    true ->
-      return_error(L,
-                   io_lib:format(
-                        "Built-in type ~w can not be redefined "
-                        ++ "as generic type", [Name]));
-    false ->
-      {terl_generic_type, Name}
-  end.
 
 terl_union_type(Types, [R]) when is_tuple(R) ->
   case R of
@@ -1457,6 +1448,18 @@ mk_type_cons(A, Name, Params, Def) ->
       return_error(L,
                    io_lib:format(
                      "Undefined keyword '~w'", [T]))
+  end.
+
+mk_type_cons_param(T) ->
+  {var, L, Var} = T,
+  case type_internal:built_in(Var) of
+    true ->
+      return_error(L,
+                   io_lib:format(
+                     "Only generic type can appear as type constructor"
+                     ++  " parameter '~w'", [Var]));
+    false ->
+      {terl_generic_type, Var}
   end.
 
 %% vim: ft=erlang
