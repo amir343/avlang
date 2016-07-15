@@ -445,6 +445,20 @@ calc_score({fun_type, SigArg, _},
 
 arg_match({terl_atom_type, T}, {atom, _, T}) ->
   1;
+arg_match({terl_tuple, Ts1}, {terl_tuple, Ts2}) ->
+  case length(Ts1) =:= length(Ts2) of
+    true -> 1 + arg_match(Ts1, Ts2);
+    false -> 0
+  end;
+arg_match([_ | _] = L1, [_ | _] = L2) ->
+  case length(L1) =:= length(L2) of
+    true -> lists:sum([arg_match(A, B) || {A, B} <- lists:zip(L1, L2)]);
+    false -> 0
+  end;
+arg_match({terl_list, T1}, {terl_list, T2}) ->
+  arg_match(T1, T2);
+arg_match(T, T) ->
+  1;
 arg_match(_, _) ->
   0.
 
@@ -499,9 +513,10 @@ type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
 
 type_check_clause({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
-  ArgTypes = lists:zip(Args, Is),
+  VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
+                             reduce(LHS, RHS, Acc)
+                         end, [], lists:zip(Args, Is)),
   %% TODO: validity of declated types for args
-  VarTypes = [VT || {{Kind, _, _}, _} = VT <- ArgTypes, Kind =:= var],
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
                             insert_args(V, T, S0)
                         end, Scopes0, VarTypes),
@@ -533,6 +548,7 @@ insert_args({var, _, '_'}, _, S) ->
   S;
 insert_args({var, L, Var}, Type, S) ->
   LS = (S#scopes.local),
+  io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
   S#scopes{local =
              LS#local_scope{vars =
@@ -598,6 +614,9 @@ type_of({atom, _, T}, S) ->
 type_of({string, _, _}, S) ->
   {type_internal:tag_built_in('String'), S};
 
+type_of({var, _L, '_'}, Scopes0) ->
+  {type_internal:tag_built_in('Any'), Scopes0};
+
 type_of({op, L, Op, LHS, RHS}, Scopes0) ->
   {TL0, Scopes1} = type_of(LHS, Scopes0),
   {TR0, Scopes2} = type_of(RHS, Scopes1),
@@ -619,12 +638,12 @@ type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
   {TT0, Scopes2} = type_of(T, Scopes1),
   TT1 = unwrap_list(T, TT0, L),
-  {assert_list_validity(TT1, TH, L), Scopes2};
+  {assert_list_validity(TH, TT1, L), Scopes2};
 
 type_of({tuple, L, Es}, Scopes0) ->
   {TEs, Scopes1} = lists:foldl(fun(E, {Ts, Scopes}) ->
                                   {T, Scopes1} = type_of(E, Scopes),
-                                  {[T | Ts], Scopes1}
+                                  {Ts ++ [T], Scopes1}
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
 
@@ -670,12 +689,13 @@ unwrap_list(_, T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
-assert_list_validity(TT, TH, L) ->
+assert_list_validity(TH, TT, L) ->
   case {TH, TT} of
-    {undefined, _}         -> undefined;
-    {_, undefined}         -> undefined;
-    {undefined, undefined} -> undefined;
-    {_, nothing}           -> {list_type, TH};
+    {undefined, _}          -> undefined;
+    {_, undefined}          -> undefined;
+    {undefined, undefined}  -> undefined;
+    {_, nothing}            -> {list_type, TH};
+    {{terl_type, 'Any'}, _} -> {list_type, TT};
     {T1, T2} ->
       case T1 =:= T2 of
         true -> {list_type, T1};
