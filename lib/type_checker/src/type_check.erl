@@ -22,6 +22,9 @@
         , format_error/1
         ]).
 
+-export([calc_score/2]).
+
+
 -record(state, { fun_sigs      = dict:new()
                  %% {key, [{fun_sig, L, N, [T]}]}
                , type_aliases  = dict:new()
@@ -378,96 +381,128 @@ type_check1([], Scopes) ->
   Scopes;
 
 type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
-  Sigs = find_fun_sig(N, A, Scopes),
-  {TCls0, Scopes1} =
-    lists:foldl(fun(Cl, {Ts, Scopes0}) ->
-                    {T, Scopes1} = type_check_clause(Sigs, Cl, Scopes0),
+  {ClauseSig, Scopes1} = match_clauses_with_sig(N, A, Cls, Scopes),
+  %% InferredTypeFSig =:= {Line, fun_type, fun_type}
+  {InferredTypeFSig, Scopes2} =
+    lists:foldl(fun({Cl, Sig}, {Ts, S0}) ->
+                    {T, S1} = type_check_clause(Sig, Cl, S0),
                     %% Also save the computed local scope with forms?
-                    Scopes2 = Scopes1#scopes{local = #local_scope{}},
-                    {[T | Ts], Scopes2}
-                end, {[], Scopes}, Cls),
+                    L2 = element(2, Cl),
+                    S2 = S1#scopes{local = #local_scope{}},
+                    {[{L2, T, Sig} | Ts], S2}
+                end, {[], Scopes1}, ClauseSig),
 
-  {FType, Scopes2} = infer_function_type(N, A, TCls0, Scopes1),
-  Scopes3 = validate_fun_type(N, A, L, FType, Sigs, Scopes2),
-  type_check1(Forms, Scopes3);
+  {FType, Scopes3} = infer_function_type({N, A}, InferredTypeFSig, Scopes2),
+  Scopes4 = validate_fun_type({N, A, L}, FType, Scopes3),
+  type_check1(Forms, Scopes4);
 
 type_check1([_ | Fs], Scopes) ->
   type_check1(Fs, Scopes).
 
+
+%% Returns [{clause, fun_type}]
+match_clauses_with_sig(N, A, Cls, Scopes) ->
+  Sig = find_fun_sig(N, A, Scopes),
+  case Sig of
+    {undefined, Scopes} ->
+      lists:map(fun(E) -> {E, undefined} end, Cls);
+    FSs ->
+      match_clauses_with_sig0(Cls, FSs, [], Scopes)
+  end.
+
+%% Returns [{clause, fun_Type}]
+match_clauses_with_sig0([], _, Res, Scopes) ->
+  {Res, Scopes};
+match_clauses_with_sig0([C | Cls], {fun_sig, L, N, Sigs}, Res, Scopes) ->
+  Scores = lists:map(fun(S0) ->
+                         {calc_score(S0, C), S0}
+                     end, Sigs),
+  SortedScores = lists:sort(fun({A, _}, {B, _}) ->
+                                B =< A
+                            end, Scores),
+  %% Always picks the first best match. In case of multiple match with
+  %% the same rank, it's developer's responsibility to declare fun sigs
+  %% in correct order
+  [{_Rank, BestMatch} | _] = SortedScores,
+  match_clauses_with_sig0(Cls, {fun_sig, L, N, Sigs -- [BestMatch]},
+                          Res ++ [{C, BestMatch}], Scopes).
+
+%% Returns [{fun_sig, L, N, T}] | [undefined]
 find_fun_sig(N, A, #scopes{state = State}) ->
-  #state{fun_sigs = FS} = State,
-  case dict:find(N, FS) of
+  case dict:find(N, State#state.fun_sigs) of
     {ok, Vs} ->
-      hd([T || {fun_sig, _, _, T} <- Vs, fun_arity(T) =:= A] ++
-           [undefined]);
+      hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
+         ++ [undefined]);
     error -> undefined
   end.
 
+calc_score({fun_type, SigArg, _},
+           {clause, _, CArg, _, _}) ->
+  Args = lists:zip(SigArg, CArg),
+  lists:foldl(fun({A1, A2}, Acc) ->
+                  Acc + arg_match(A1, A2)
+              end, 0, Args).
 
-infer_function_type(N, Ar, TCls, S=#scopes{global = GS}) ->
-  TIn = infer_arg_types(Ar, TCls),
-  TOut = infer_return_type(TCls),
-  FType = {fun_type, TIn, TOut},
-  %% TODO: infer in/out types based on local calls if FType has undefined types
-  {FType, S#scopes{global = dict:append(N, FType, GS)}}.
-
-validate_fun_type(N, A, L, FType, Sig, S=#scopes{final = true}) ->
-  Undefs = extract_type_terminals(undefined, FType),
-  S1 = case length(Undefs) of
-         0 -> S;
-         _ ->
-           Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
-           S#scopes{errors = S#scopes.errors ++ [Err]}
-       end,
-  case Sig of
-    undefined -> S1;
-    FSig0 ->
-      %% TODO: Fix this!
-      FSig = hd(FSig0),
-      case type_equivalent(FSig, FType) of
-        false ->
-          Err2 = {L, ?TYPE_MSG,
-                  {declared_inferred_fun_type_do_not_match, N, A, FSig, FType}},
-          S#scopes{errors = S#scopes.errors ++ [Err2]};
-        true ->
-          S1
-      end
+arg_match({terl_atom_type, T}, {atom, _, T}) ->
+  1;
+arg_match({terl_tuple, Ts1}, {terl_tuple, Ts2}) ->
+  case length(Ts1) =:= length(Ts2) of
+    true -> 1 + arg_match(Ts1, Ts2);
+    false -> 0
   end;
+arg_match([_ | _] = L1, [_ | _] = L2) ->
+  case length(L1) =:= length(L2) of
+    true -> lists:sum([arg_match(A, B) || {A, B} <- lists:zip(L1, L2)]);
+    false -> 0
+  end;
+arg_match({terl_list, T1}, {terl_list, T2}) ->
+  arg_match(T1, T2);
+arg_match(T, T) ->
+  1;
+arg_match(_, _) ->
+  0.
 
-validate_fun_type(_, _, _, _, _, S=#scopes{final = false}) ->
-  S.
 
-infer_return_type(TCls) ->
-  TOut = [O || {_, O} <- TCls],
-  S = lists:foldl(fun(O, Set) ->
-                      gb_sets:add(O, Set)
-                  end, gb_sets:new(), TOut),
-  Ts = gb_sets:to_list(S),
-  case length(Ts) of
-    1 ->
-      hd(Ts);
-    _ -> {union_type, Ts}
+infer_function_type(NA, InferredTypeFSigList, Scopes) ->
+  lists:foldl(fun({L, FType, FSig}, {Ts, S0}) ->
+                  {N, A} = NA,
+                  {FT, S1} = infer_function_clause({N, A, L}, FType, FSig, S0),
+                  {Ts ++ [FT], S1}
+              end, {[], Scopes}, InferredTypeFSigList).
+
+infer_function_clause(_, FT, undefined, S) ->
+  {FT, S};
+infer_function_clause(NAL, FT1, FT2, S=#scopes{final = Final}) ->
+  case type_equivalent(FT1, FT2) of
+    true -> {FT2, S};
+    false ->
+      case Final of
+        true ->
+          {N, A, L} = NAL,
+          Err = {L, ?TYPE_MSG,
+                 {declared_inferred_fun_type_do_not_match, N, A, FT2, FT1}},
+          {undefined, S#scopes{errors = S#scopes.errors ++ [Err]}};
+        false ->
+          {undefined, S}
+      end
   end.
 
-infer_arg_types(Ar, TCls) ->
-  TIn = [Is || {Is, _} <- TCls],
-  case Ar of
-    0 -> [];
+validate_fun_type(NAL, FTypes, Scopes) ->
+  lists:foldl(fun(FT, S0) ->
+                  validate_fun_type0(NAL, FT, S0)
+              end, Scopes, FTypes).
+
+validate_fun_type0(NAL, FType, S=#scopes{final = true}) ->
+  Undefs = extract_type_terminals(undefined, FType),
+  case length(Undefs) of
+    0 -> S;
     _ ->
-      Init = [gb_sets:new() || _ <- lists:seq(1, Ar)],
-      ZippedIn = lists:foldl(fun(Is, Acc) ->
-                                 lists:zipwith(fun(Set, T) ->
-                                                   gb_sets:add(T, Set)
-                                               end, Acc, Is)
-                             end, Init, TIn),
-      lists:map(fun(Set) ->
-                    Ts = gb_sets:to_list(Set),
-                    case length(Ts) of
-                      1 -> hd(Ts);
-                      _ -> {union_type, Ts}
-                    end
-                end, ZippedIn)
-  end.
+      {N, A, L} = NAL,
+      Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
+      S#scopes{errors = S#scopes.errors ++ [Err]}
+  end;
+validate_fun_type0(_, _, S=#scopes{final = false}) ->
+  S.
 
 type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
   Scope1 = lists:foldl(fun(Var, S0) ->
@@ -476,12 +511,12 @@ type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
                                               <- Args, Kind =:= var]),
   type_check_clause0(Cl, Scope1);
 
-%% TODO: Fix this!
-type_check_clause([{fun_type, Is, _}| _],
+type_check_clause({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
-  ArgTypes = lists:zip(Args, Is),
+  VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
+                             reduce(LHS, RHS, Acc)
+                         end, [], lists:zip(Args, Is)),
   %% TODO: validity of declated types for args
-  VarTypes = [VT || {{Kind, _, _}, _} = VT <- ArgTypes, Kind =:= var],
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
                             insert_args(V, T, S0)
                         end, Scopes0, VarTypes),
@@ -493,7 +528,7 @@ type_check_clause0({clause, _L, Args, _G, Exprs}, Scopes0) ->
                             type_check_expr(Expr, S0)
                         end, {nil, Scopes0}, Exprs),
   TIn = [element(1, type_of(Arg, Scopes1)) || Arg <- Args],
-  {{TIn, TOut}, check_local_scope(Scopes1)}.
+  {{fun_type, TIn, TOut}, check_local_scope(Scopes1)}.
 
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
@@ -513,6 +548,7 @@ insert_args({var, _, '_'}, _, S) ->
   S;
 insert_args({var, L, Var}, Type, S) ->
   LS = (S#scopes.local),
+  io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
   S#scopes{local =
              LS#local_scope{vars =
@@ -572,11 +608,14 @@ type_of({integer, _, _}, S) ->
 type_of({float, _, _}, S) ->
   {type_internal:tag_built_in('Float'), S};
 
-type_of({atom, _, _}, S) ->
-  {type_internal:tag_built_in('Atom'), S};
+type_of({atom, _, T}, S) ->
+  {{terl_atom_type, T}, S};
 
 type_of({string, _, _}, S) ->
   {type_internal:tag_built_in('String'), S};
+
+type_of({var, _L, '_'}, Scopes0) ->
+  {type_internal:tag_built_in('Any'), Scopes0};
 
 type_of({op, L, Op, LHS, RHS}, Scopes0) ->
   {TL0, Scopes1} = type_of(LHS, Scopes0),
@@ -599,12 +638,12 @@ type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
   {TT0, Scopes2} = type_of(T, Scopes1),
   TT1 = unwrap_list(T, TT0, L),
-  {assert_list_validity(TT1, TH, L), Scopes2};
+  {assert_list_validity(TH, TT1, L), Scopes2};
 
 type_of({tuple, L, Es}, Scopes0) ->
   {TEs, Scopes1} = lists:foldl(fun(E, {Ts, Scopes}) ->
                                   {T, Scopes1} = type_of(E, Scopes),
-                                  {[T | Ts], Scopes1}
+                                  {Ts ++ [T], Scopes1}
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
 
@@ -650,12 +689,13 @@ unwrap_list(_, T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
-assert_list_validity(TT, TH, L) ->
+assert_list_validity(TH, TT, L) ->
   case {TH, TT} of
-    {undefined, _}         -> undefined;
-    {_, undefined}         -> undefined;
-    {undefined, undefined} -> undefined;
-    {_, nothing}           -> {list_type, TH};
+    {undefined, _}          -> undefined;
+    {_, undefined}          -> undefined;
+    {undefined, undefined}  -> undefined;
+    {_, nothing}            -> {list_type, TH};
+    {{terl_type, 'Any'}, _} -> {list_type, TT};
     {T1, T2} ->
       case T1 =:= T2 of
         true -> {list_type, T1};
@@ -680,7 +720,7 @@ assert_type_equality(Var, L, Declared, Inferred) ->
     undefined ->
       ok;
     T ->
-      case T =:= Declared of
+      case type_equivalent(T, Declared) of
         true -> ok;
         false ->
           throw({error,
@@ -899,6 +939,8 @@ pp_type({fun_type, Is, O}) ->
 pp_type({union_type, Ts}) ->
   TEs = [pp_type(T) || T <- Ts],
   io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);
+pp_type({terl_atom_type, T}) ->
+  io_lib:format("~s", [T]);
 pp_type(undefined) ->
   "undefined";
 pp_type(T) ->
