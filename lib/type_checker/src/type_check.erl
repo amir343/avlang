@@ -149,7 +149,7 @@ check_unsued_user_defined_types(FileName, #state{type_aliases = TA
         true  -> [];
         false -> [{FileName,
                    [{L, ?TYPE_MSG,
-                     {type_alias_defined_not_used, N, L}}]}]
+                     {type_alias_defined_not_used, N}}]}]
       end
       || {_, {type_alias, L, N, _}} <- dict:to_list(TA)]).
 
@@ -356,6 +356,7 @@ type_terminals(W) ->
                      , outer_scope  = nil}).
 
 -record(scopes, { local             = #local_scope{}
+                , locals            = []
                 , global            = dict:new()
                 , state             = #state{}
                 , errors            = []
@@ -388,7 +389,7 @@ type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
                     {T, S1} = type_check_clause(Sig, Cl, S0),
                     %% Also save the computed local scope with forms?
                     L2 = element(2, Cl),
-                    S2 = S1#scopes{local = #local_scope{}},
+                    S2 = change_local_scope(S1),
                     {[{L2, T, Sig} | Ts], S2}
                 end, {[], Scopes1}, ClauseSig),
 
@@ -546,7 +547,15 @@ type_check_expr(E, Scopes0) ->
 
 insert_args({var, _, '_'}, _, S) ->
   S;
-insert_args({var, L, Var}, Type, S) ->
+insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
+  case {recursive_lookup(Var, LS), Type} of
+    {undefined, undefined} -> S;
+    {undefined, _}         -> insert_args0(Var, L, Type, S);
+    {_,         undefined} -> S;
+    {_,         _}         -> insert_args0(Var, L, Type, S)
+    end.
+
+insert_args0(Var, L, Type, S) ->
   LS = (S#scopes.local),
   io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
@@ -806,11 +815,33 @@ type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
                      E1 =:= true
                  end, [type_equivalent(T, TT) || TT <- Ts2])
                || T <- Ts1]);
+type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
+  (length(Ts1) =:= length(Ts2)) andalso
+    lists:all(fun(E) -> E =:= true end,
+              [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
 type_equivalent(T, T) ->
   true;
 type_equivalent(_, _) ->
   false.
 
+change_local_scope(S=#scopes{local = L, locals = LS, final = F}) ->
+  case F of
+    true ->
+      [H|T] = LS,
+      S#scopes{local = H, locals = T};
+    false ->
+      S#scopes{local = #local_scope{}, locals = S#scopes.locals ++ [L]}
+  end.
+
+nest_local_scope(S=#scopes{local = L, locals = LS, final = F}) ->
+  case F of
+    true ->
+      [H|T] = LS,
+      S#scopes{local = H, locals = T};
+    false ->
+      S#scopes{local = #local_scope{outer_scope = L},
+               locals = S#scopes.locals ++ [L]}
+  end.
 
 %%% Format errors --------------------------------------------------------------
 
@@ -847,10 +878,10 @@ format_error({multi_match_fun_decl_for_fun_sig, N, L2}) ->
     "Multiple function implementations matched with declared function"
     ++ " signature '~w' at line ~p. This is a fatal error in compiler!",
     [N, L2]);
-format_error({type_alias_defined_not_used, N, L}) ->
+format_error({type_alias_defined_not_used, N}) ->
   io_lib:format(
-    "Type alias '~w' defined at line ~p but never used",
-    [N, L]);
+    "Type alias ~w defined but never used",
+    [N]);
 format_error({undefined_type, N}) ->
   io_lib:format(
     "Undefined type '~w'",
