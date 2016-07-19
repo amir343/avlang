@@ -22,8 +22,6 @@
         , format_error/1
         ]).
 
--export([calc_score/2]).
-
 
 -record(state, { fun_sigs      = dict:new()
                  %% {key, [{fun_sig, L, N, [T]}]}
@@ -369,9 +367,17 @@ type_check0(Forms, FileName, State) ->
   Scopes1 = type_check1(Forms, Scopes0),
 
   %% Pass 2:
-  #scopes{errors = Errs0} = type_check1(Forms, Scopes1#scopes{final = true}),
+  #scopes{errors = Errs0, global = GS}
+    = type_check1(Forms, Scopes1#scopes{final = true}),
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
                    , gb_sets:to_list(gb_sets:from_list(Errs0))),
+
+  %% Only for sake of debugging
+  lists:foreach(fun({N, FTypes}) ->
+                    TS = [FT1 || FT <- FTypes, FT1 <- FT],
+                    [io:format("~p/~p :: ~s~n", [N, fun_arity(T), pp_type(T)])
+                     || T <- TS]
+                end, dict:to_list(GS)),
 
   case length(Errs) of
     0 -> {ok, [], State};
@@ -393,9 +399,10 @@ type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
                     {[{L2, T, Sig} | Ts], S2}
                 end, {[], Scopes1}, ClauseSig),
 
-  {FType, Scopes3} = infer_function_type({N, A}, InferredTypeFSig, Scopes2),
-  Scopes4 = validate_fun_type({N, A, L}, FType, Scopes3),
-  type_check1(Forms, Scopes4);
+  {FTypes, Scopes3} = infer_function_type({N, A}, InferredTypeFSig, Scopes2),
+  Scopes4 = validate_fun_type({N, A, L}, FTypes, Scopes3),
+  Scopes5 = update_global_scope_for_fun_type(Scopes4, N, A, FTypes),
+  type_check1(Forms, Scopes5);
 
 type_check1([_ | Fs], Scopes) ->
   type_check1(Fs, Scopes).
@@ -405,8 +412,8 @@ type_check1([_ | Fs], Scopes) ->
 match_clauses_with_sig(N, A, Cls, Scopes) ->
   Sig = find_fun_sig(N, A, Scopes),
   case Sig of
-    {undefined, Scopes} ->
-      lists:map(fun(E) -> {E, undefined} end, Cls);
+    undefined ->
+      {lists:map(fun(E) -> {E, undefined} end, Cls), Scopes};
     FSs ->
       match_clauses_with_sig0(Cls, FSs, [], Scopes)
   end.
@@ -414,10 +421,19 @@ match_clauses_with_sig(N, A, Cls, Scopes) ->
 %% Returns [{clause, fun_Type}]
 match_clauses_with_sig0([], _, Res, Scopes) ->
   {Res, Scopes};
-match_clauses_with_sig0([C | Cls], {fun_sig, L, N, Sigs}, Res, Scopes) ->
-  Scores = lists:map(fun(S0) ->
-                         {calc_score(S0, C), S0}
+match_clauses_with_sig0([{clause, _, CArg, _, _} = C | Cls],
+                        {fun_sig, L, N, Sigs}, Res, Scopes) ->
+  BestMatch = find_the_best_match(CArg, Sigs),
+  match_clauses_with_sig0(Cls, {fun_sig, L, N, Sigs -- [BestMatch]},
+                          Res ++ [{C, BestMatch}], Scopes).
+
+find_the_best_match(_, undefined) ->
+  undefined;
+find_the_best_match(TypedArgs, Sigs) ->
+  Scores = lists:map(fun({fun_type, S0, _} = Sig) ->
+                         {calc_match_score(S0, TypedArgs), Sig}
                      end, Sigs),
+  %% [{Integer, Sig}]
   SortedScores = lists:sort(fun({A, _}, {B, _}) ->
                                 B =< A
                             end, Scores),
@@ -425,10 +441,9 @@ match_clauses_with_sig0([C | Cls], {fun_sig, L, N, Sigs}, Res, Scopes) ->
   %% the same rank, it's developer's responsibility to declare fun sigs
   %% in correct order
   [{_Rank, BestMatch} | _] = SortedScores,
-  match_clauses_with_sig0(Cls, {fun_sig, L, N, Sigs -- [BestMatch]},
-                          Res ++ [{C, BestMatch}], Scopes).
+  BestMatch.
 
-%% Returns [{fun_sig, L, N, T}] | [undefined]
+%% Returns {fun_sig, L, N, T} | undefined
 find_fun_sig(N, A, #scopes{state = State}) ->
   case dict:find(N, State#state.fun_sigs) of
     {ok, Vs} ->
@@ -437,9 +452,14 @@ find_fun_sig(N, A, #scopes{state = State}) ->
     error -> undefined
   end.
 
-calc_score({fun_type, SigArg, _},
-           {clause, _, CArg, _, _}) ->
-  Args = lists:zip(SigArg, CArg),
+%% Calculate the scores given to two typed argument lists on the degree
+%% of how much they match each other
+calc_match_score(undefined, _) ->
+  0;
+calc_match_score(_, undefined) ->
+  0;
+calc_match_score(Args1, Args2) ->
+  Args = lists:zip(Args1, Args2),
   lists:foldl(fun({A1, A2}, Acc) ->
                   Acc + arg_match(A1, A2)
               end, 0, Args).
@@ -505,6 +525,17 @@ validate_fun_type0(NAL, FType, S=#scopes{final = true}) ->
 validate_fun_type0(_, _, S=#scopes{final = false}) ->
   S.
 
+update_global_scope_for_fun_type(Scopes, N, A, FTypes) ->
+  Res = lists:all(fun(F) ->
+                      length(extract_type_terminals(undefined, F)) =:= 0
+                  end, FTypes),
+  case Res of
+    true ->
+      update_global(Scopes, N, A, FTypes);
+    false ->
+      Scopes
+  end.
+
 type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
   Scope1 = lists:foldl(fun(Var, S0) ->
                             insert_args(Var, undefined, S0)
@@ -553,7 +584,7 @@ insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
     {undefined, _}         -> insert_args0(Var, L, Type, S);
     {_,         undefined} -> S;
     {_,         _}         -> insert_args0(Var, L, Type, S)
-    end.
+  end.
 
 insert_args0(Var, L, Type, S) ->
   LS = (S#scopes.local),
@@ -572,7 +603,7 @@ check_local_scope(S=#scopes{final = true, local = #local_scope{vars = Vars}}) ->
   S#scopes{errors = S#scopes.errors ++ Undefs}.
 
 %% Tries to pattern match LHS and RHS and infer type
-%% for a variable in LHS from RHS. For sake of error handling
+%% for variables in LHS from RHS. For sake of error handling
 %% we need to reduce to all posssible terminals in LHS.
 reduce({integer, _, _}, _, Rs) ->
   Rs;
@@ -600,6 +631,7 @@ reduce({op, _, '++', {string, _, _}, {var, _, _} = V},
   reduce(V, T, Rs);
 reduce(_, _, W) ->
   W.
+
 
 ulist({list_type, T}) ->
   T;
@@ -656,9 +688,51 @@ type_of({tuple, L, Es}, Scopes0) ->
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
 
+type_of({call, L, NN, Args}, Scopes0) ->
+  Arity = length(Args),
+  {N0, Scopes1} = type_of(NN, Scopes0),
+  N = case N0 of
+        undefined -> undefined;
+        N1 -> element(2, N1)
+      end,
+  FTypes = find_fun_type(N, Arity, Scopes1),
+  Scopes2 = assert_found_fun_type(FTypes, L, NN, Arity, Scopes1),
+  {TypedArgs, Scopes3} = lists:foldl(fun(Arg, {Ts, S0}) ->
+                                  {T, S1} = type_of(Arg, S0),
+                                  {Ts ++ [T], S1}
+                              end, {[], Scopes2}, Args),
+
+  Res = case find_exact_match(TypedArgs, FTypes) of
+          undefined -> undefined;
+          {fun_type, _, O} -> O
+        end,
+  {Res, Scopes3};
+
 type_of(T, Scopes) ->
-  io:format("type_of ~p not implemented", [T]),
+  io:format("type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
+
+assert_found_fun_type(undefined, L, NN, Ar,
+                      S=#scopes{final = true, errors = Errs}) ->
+  S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
+assert_found_fun_type(_, _, _, _, S) ->
+  S.
+
+find_exact_match(_, undefined) ->
+  undefined;
+find_exact_match(TypedArgs, FTypes) ->
+  Matches = [{lists:all(fun({A1, A2}) -> type_equivalent(A1, A2) end,
+                        lists:zip(TypedArgs, Is)), FT}
+             || {fun_type, Is, _} = FT <- FTypes],
+
+  ExactMatches = lists:filter(fun({M, _}) -> M =:= true
+                              end, Matches),
+  case length(ExactMatches) of
+    0 ->
+      undefined;
+    %% TODO: If more than one matches?
+    _ -> element(2, hd(ExactMatches))
+  end.
 
 dispatch(TL, Op, TR) ->
   dispatch_result(type_internal:dispatch(TL, Op, TR)).
@@ -761,6 +835,20 @@ assert_operator_validity(Res, Op, TR, L) ->
     R -> R
   end.
 
+%% This is to avoid same variables errored multiple places
+type_defined_in_local(Var, #scopes{local = LS}) ->
+  case recursive_lookup(Var, LS) of
+    undefined -> false;
+    _         -> true
+  end.
+
+%% Only returns Scope
+update_local(S0, VarTypes) ->
+  lists:foldl(fun({K, T}, Acc) ->
+                  {_, S1} = update_local(Acc, K, T),
+                  S1
+             end, S0, VarTypes).
+
 %% Returns {Type, Scopes}
 update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
   MetaVar = #meta_var{type = Type, line = L},
@@ -783,19 +871,35 @@ update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
       {Type, S1}
   end.
 
-%% This is to avoid same variables errored multiple places
-type_defined_in_local(Var, #scopes{local = LS}) ->
-  case recursive_lookup(Var, LS) of
-    undefined -> false;
-    _         -> true
+update_global(S=#scopes{global = GS}, N, Ar, FTypes) ->
+  FsExceptN = case dict:find(N, GS) of
+                 {ok, FLists} ->
+                   [FList || FList <- FLists, fun_arity(hd(FList)) =/= Ar];
+                 error -> []
+               end,
+  S#scopes{global = dict:store(N, FsExceptN ++ [FTypes], GS)}.
+
+find_fun_type_in_global(#scopes{global = GS}, N, Ar) ->
+  case dict:find(N, GS) of
+    {ok, FList} ->
+      lists:flatten(
+        lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
+    error -> []
   end.
 
-%% Only returns Scope
-update_local(S0, VarTypes) ->
-  lists:foldl(fun({K, T}, Acc) ->
-                  {_, S1} = update_local(Acc, K, T),
-                  S1
-             end, S0, VarTypes).
+%% First checks to see if there exits a type definition in global scope
+%% if not checks the function signature
+find_fun_type(N, Ar, Scopes) ->
+  case find_fun_type_in_global(Scopes, N, Ar) of
+    [] ->
+      case find_fun_sig(N, Ar, Scopes) of
+        undefined -> undefined;
+        {fun_sig, _, _, T} ->
+          T
+      end;
+    T ->
+      T
+  end.
 
 %% Check if given two types are equivalent
 type_equivalent({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
@@ -819,6 +923,14 @@ type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
     lists:all(fun(E) -> E =:= true end,
               [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
+type_equivalent({terl_atom_type, T}, {terl_type, T}) ->
+  true;
+type_equivalent({terl_type, T}, {terl_atom_type, T}) ->
+  true;
+type_equivalent({terl_type, 'Any'}, _) ->
+  true;
+type_equivalent(_, {terl_type, 'Any'}) ->
+  true;
 type_equivalent(T, T) ->
   true;
 type_equivalent(_, _) ->
@@ -944,6 +1056,11 @@ format_error({multiple_inferred_type, Expr, Ts}) ->
   io_lib:format(
     "Multiple types can be inferred for '~s':~n\t\t~s",
     [pp_expr(Expr), list_to_string_sep([pp_type(T) || T <- Ts], ", ")]);
+format_error({can_not_infer_type_fun, NN, Ar}) ->
+  io_lib:format(
+    "Can not infer type for ~s/~p or function does not exist",
+    [pp_expr(NN), Ar]
+   );
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 
@@ -963,7 +1080,7 @@ pp_type({list_type, T}) ->
   io_lib:format("[~s]", [pp_type(T)]);
 pp_type({tuple_type, Ts}) ->
   TT = [pp_type(T) || T <- Ts],
-  io_lib:format("{~s}", [list_to_string_sep(TT, $,)]);
+  io_lib:format("{~s}", [list_to_string_sep(TT, ", ")]);
 pp_type({fun_type, Is, O}) ->
   TIs = [pp_type(I) || I <- Is],
   io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), pp_type(O)]);
@@ -988,6 +1105,8 @@ pp_expr({op, _, Op, L, R}) ->
 pp_expr(V) ->
   io_lib:format("~p", [V]).
 
+list_to_string_sep([], _) ->
+  "";
 list_to_string_sep(List, Sep) ->
   lists:flatten(lists:reverse(list_to_string_sep1(List, Sep, []))).
 
