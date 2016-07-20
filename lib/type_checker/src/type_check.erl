@@ -367,6 +367,7 @@ type_check0(Forms, FileName, State) ->
   Scopes1 = type_check1(Forms, Scopes0),
 
   %% Pass 2:
+  io:format(">>>>>>>>>>> PASS 2 <<<<<<<<<<<<<<<~n", []),
   #scopes{errors = Errs0, global = GS}
     = type_check1(Forms, Scopes1#scopes{final = true}),
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
@@ -1015,7 +1016,7 @@ format_error({tc_only_generic_type_lhs, TI}) ->
     [list_to_string(TI, "")]);
 format_error({declared_inferred_not_match, Var, Declared, Inferred}) ->
   io_lib:format(
-    "Expected variable ~p to be of type ~s but is ~s",
+    "Expected variable ~p to be of type '~s' but is '~s'",
     [Var, pp_type(Declared), pp_type(Inferred)]);
 format_error({invalid_operator, Op, TL, TR}) ->
   io_lib:format(
