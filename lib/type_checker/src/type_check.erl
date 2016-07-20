@@ -355,35 +355,73 @@ type_terminals(W) ->
 
 -record(scopes, { local             = #local_scope{}
                 , locals            = []
+                  %% global :: Dict(N, [[{fun_type}]])
                 , global            = dict:new()
                 , state             = #state{}
                 , errors            = []
-                , final             = false}).
+                , first_pass        = true}).
 
 
 type_check0(Forms, FileName, State) ->
   Scopes0 = #scopes{state = State},
-  %% Pass 1:
-  Scopes1 = type_check1(Forms, Scopes0),
 
-  %% Pass 2:
-  io:format(">>>>>>>>>>> PASS 2 <<<<<<<<<<<<<<<~n", []),
-  #scopes{errors = Errs0, global = GS}
-    = type_check1(Forms, Scopes1#scopes{final = true}),
+  #scopes{errors = Errs0}
+    = type_check_loop(1, Forms, Scopes0, -1),
+
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
                    , gb_sets:to_list(gb_sets:from_list(Errs0))),
-
-  %% Only for sake of debugging
-  lists:foreach(fun({N, FTypes}) ->
-                    TS = [FT1 || FT <- FTypes, FT1 <- FT],
-                    [io:format("~p/~p :: ~s~n", [N, fun_arity(T), pp_type(T)])
-                     || T <- TS]
-                end, dict:to_list(GS)),
 
   case length(Errs) of
     0 -> {ok, [], State};
     _ -> {error, [{FileName, Errs}], []}
   end.
+
+
+type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
+  io:format(">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
+
+  Scopes1 = type_check1(Forms, Scopes0),
+  %% Only for sake of debugging
+  lists:foreach(fun({N, FTypes}) ->
+                    TS = [FT1 || FT <- FTypes, FT1 <- FT],
+                    [io:format("~p/~p :: ~s~n", [N, fun_arity(T), pp_type(T)])
+                     || T <- TS]
+                end, dict:to_list(Scopes1#scopes.global)),
+  Undefs = count_undefined(Scopes1),
+  io:format("Number of undefined: ~p~n", [Undefs]),
+  Scopes2 = Scopes1#scopes{first_pass = false, errors = []},
+  case Undefs of
+    0 -> Scopes1;
+    _ ->
+      case FP of
+        true ->
+          type_check_loop(PassN + 1, Forms, Scopes2, Undefs);
+        false ->
+          case Undefs =:= PUndefs of
+            true ->
+              Scopes1;
+            false ->
+              type_check_loop(PassN + 1, Forms, Scopes2, Undefs)
+          end
+      end
+  end.
+
+
+
+count_undefined(#scopes{locals = LS, global = GS}) ->
+  lists:foldl(fun(#local_scope{vars = L}, Cnt) ->
+                  Cnt +
+                    length(
+                      [1 || {_, #meta_var{type = T}} <- dict:to_list(L),
+                            T =:= undefined])
+              end, 0, LS) +
+    lists:foldl(fun({_, FTypes}, Cnt) ->
+                    Ts = [FT1 || FT <- FTypes, FT1 <- FT],
+                    Cnt +
+                      lists:sum(
+                        [length(extract_type_terminals(undefined, T))
+                         || T <- Ts])
+                end, 0, dict:to_list(GS)).
 
 type_check1([], Scopes) ->
   Scopes;
@@ -402,7 +440,7 @@ type_check1([{function, L, N, A, Cls} | Forms], Scopes) ->
 
   {FTypes, Scopes3} = infer_function_type({N, A}, InferredTypeFSig, Scopes2),
   Scopes4 = validate_fun_type({N, A, L}, FTypes, Scopes3),
-  Scopes5 = update_global_scope_for_fun_type(Scopes4, N, A, FTypes),
+  Scopes5 = update_global(Scopes4, N, A, FTypes),
   type_check1(Forms, Scopes5);
 
 type_check1([_ | Fs], Scopes) ->
@@ -494,19 +532,14 @@ infer_function_type(NA, InferredTypeFSigList, Scopes) ->
 
 infer_function_clause(_, FT, undefined, S) ->
   {FT, S};
-infer_function_clause(NAL, FT1, FT2, S=#scopes{final = Final}) ->
+infer_function_clause(NAL, FT1, FT2, S=#scopes{}) ->
   case type_equivalent(FT1, FT2) of
     true -> {FT2, S};
     false ->
-      case Final of
-        true ->
-          {N, A, L} = NAL,
-          Err = {L, ?TYPE_MSG,
-                 {declared_inferred_fun_type_do_not_match, N, A, FT2, FT1}},
-          {undefined, S#scopes{errors = S#scopes.errors ++ [Err]}};
-        false ->
-          {undefined, S}
-      end
+      {N, A, L} = NAL,
+      Err = {L, ?TYPE_MSG,
+             {declared_inferred_fun_type_do_not_match, N, A, FT2, FT1}},
+      {undefined, S#scopes{errors = S#scopes.errors ++ [Err]}}
   end.
 
 validate_fun_type(NAL, FTypes, Scopes) ->
@@ -514,7 +547,7 @@ validate_fun_type(NAL, FTypes, Scopes) ->
                   validate_fun_type0(NAL, FT, S0)
               end, Scopes, FTypes).
 
-validate_fun_type0(NAL, FType, S=#scopes{final = true}) ->
+validate_fun_type0(NAL, FType, S=#scopes{}) ->
   Undefs = extract_type_terminals(undefined, FType),
   case length(Undefs) of
     0 -> S;
@@ -522,19 +555,6 @@ validate_fun_type0(NAL, FType, S=#scopes{final = true}) ->
       {N, A, L} = NAL,
       Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
       S#scopes{errors = S#scopes.errors ++ [Err]}
-  end;
-validate_fun_type0(_, _, S=#scopes{final = false}) ->
-  S.
-
-update_global_scope_for_fun_type(Scopes, N, A, FTypes) ->
-  Res = lists:all(fun(F) ->
-                      length(extract_type_terminals(undefined, F)) =:= 0
-                  end, FTypes),
-  case Res of
-    true ->
-      update_global(Scopes, N, A, FTypes);
-    false ->
-      Scopes
   end.
 
 type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
@@ -589,15 +609,13 @@ insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
 
 insert_args0(Var, L, Type, S) ->
   LS = (S#scopes.local),
-  io:format("Var=~p, Type=~s~n", [Var, pp_type(Type)]),
+  io:format("~p :: ~s~n", [Var, pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
   S#scopes{local =
              LS#local_scope{vars =
                               dict:store(Var, MetaVar, LS#local_scope.vars)}}.
 
-check_local_scope(S=#scopes{final = false}) ->
-  S;
-check_local_scope(S=#scopes{final = true, local = #local_scope{vars = Vars}}) ->
+check_local_scope(S=#scopes{local = #local_scope{vars = Vars}}) ->
   Undefs = [{L, ?TYPE_MSG, {can_not_infer_type, V}}
             || {V, #meta_var{type = T, line = L}}
                  <- dict:to_list(Vars), T =:= undefined],
@@ -713,8 +731,7 @@ type_of(T, Scopes) ->
   io:format("type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
 
-assert_found_fun_type(undefined, L, NN, Ar,
-                      S=#scopes{final = true, errors = Errs}) ->
+assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
   S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
 assert_found_fun_type(_, _, _, _, S) ->
   S.
@@ -851,7 +868,7 @@ update_local(S0, VarTypes) ->
              end, S0, VarTypes).
 
 %% Returns {Type, Scopes}
-update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
+update_local(S=#scopes{}, {var, L, V}, Type) ->
   MetaVar = #meta_var{type = Type, line = L},
   LS = (S#scopes.local),
   S1 = S#scopes{local =
@@ -861,14 +878,14 @@ update_local(S=#scopes{final = Final}, {var, L, V}, Type) ->
                                              , LS#local_scope.vars)}},
   case Type of
     undefined ->
-      io:format("Var=~p, Type=undefined~n", [V]),
+      io:format("~p :: ?~n", [V]),
       {Type,
        S1#scopes{errors =
                   S#scopes.errors ++
                   [{L, ?TYPE_MSG, {can_not_infer_type, V}}
-                   || Final =:= true andalso type_defined_in_local(V, S)]}};
+                   || type_defined_in_local(V, S)]}};
     _ ->
-      io:format("Var=~p, Type=~s~n", [V, pp_type(Type)]),
+      io:format("~p :: ~s~n", [V, pp_type(Type)]),
       {Type, S1}
   end.
 
@@ -937,21 +954,21 @@ type_equivalent(T, T) ->
 type_equivalent(_, _) ->
   false.
 
-change_local_scope(S=#scopes{local = L, locals = LS, final = F}) ->
+change_local_scope(S=#scopes{local = L, locals = LS, first_pass = F}) ->
   case F of
-    true ->
-      [H|T] = LS,
-      S#scopes{local = H, locals = T};
     false ->
+      [H|T] = LS,
+      S#scopes{local = H, locals = T ++ [H]};
+    true ->
       S#scopes{local = #local_scope{}, locals = S#scopes.locals ++ [L]}
   end.
 
-nest_local_scope(S=#scopes{local = L, locals = LS, final = F}) ->
+nest_local_scope(S=#scopes{local = L, locals = LS, first_pass = F}) ->
   case F of
-    true ->
-      [H|T] = LS,
-      S#scopes{local = H, locals = T};
     false ->
+      [H|T] = LS,
+      S#scopes{local = H, locals = T ++ [H]};
+    true ->
       S#scopes{local = #local_scope{outer_scope = L},
                locals = S#scopes.locals ++ [L]}
   end.
@@ -1091,7 +1108,7 @@ pp_type({union_type, Ts}) ->
 pp_type({terl_atom_type, T}) ->
   io_lib:format("~s", [T]);
 pp_type(undefined) ->
-  "undefined";
+  "?";
 pp_type(T) ->
   T.
 
