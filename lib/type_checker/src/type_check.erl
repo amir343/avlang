@@ -376,7 +376,8 @@ type_check0(Forms, FileName, State) ->
     _ -> {error, [{FileName, Errs}], []}
   end.
 
-
+type_check_loop(5, _, S, _) ->
+  S;
 type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
   io:format(">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
 
@@ -407,7 +408,6 @@ type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
   end.
 
 
-
 count_undefined(#scopes{locals = LS, global = GS}) ->
   lists:foldl(fun(#local_scope{vars = L}, Cnt) ->
                   Cnt +
@@ -422,6 +422,7 @@ count_undefined(#scopes{locals = LS, global = GS}) ->
                         [length(extract_type_terminals(undefined, T))
                          || T <- Ts])
                 end, 0, dict:to_list(GS)).
+
 
 type_check1([], Scopes) ->
   Scopes;
@@ -533,7 +534,7 @@ infer_function_type(NA, InferredTypeFSigList, Scopes) ->
 infer_function_clause(_, FT, undefined, S) ->
   {FT, S};
 infer_function_clause(NAL, FT1, FT2, S=#scopes{}) ->
-  case type_equivalent(FT1, FT2) of
+  case type_internal:type_equivalent(FT1, FT2) of
     true -> {FT2, S};
     false ->
       {N, A, L} = NAL,
@@ -567,7 +568,7 @@ type_check_clause(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
 type_check_clause({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
   VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
-                             reduce(LHS, RHS, Acc)
+                             type_internal:reduce(LHS, RHS, Acc)
                          end, [], lists:zip(Args, Is)),
   %% TODO: validity of declated types for args
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
@@ -586,7 +587,7 @@ type_check_clause0({clause, _L, Args, _G, Exprs}, Scopes0) ->
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
-  VarTypes = reduce(LHS, Inferred, []),
+  VarTypes = type_internal:reduce(LHS, Inferred, []),
   Scopes2 = update_local(Scopes1, VarTypes),
   {Inferred, Scopes2};
 type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
@@ -620,43 +621,6 @@ check_local_scope(S=#scopes{local = #local_scope{vars = Vars}}) ->
             || {V, #meta_var{type = T, line = L}}
                  <- dict:to_list(Vars), T =:= undefined],
   S#scopes{errors = S#scopes.errors ++ Undefs}.
-
-%% Tries to pattern match LHS and RHS and infer type
-%% for variables in LHS from RHS. For sake of error handling
-%% we need to reduce to all posssible terminals in LHS.
-reduce({integer, _, _}, _, Rs) ->
-  Rs;
-reduce({atom, _, _}, _, Rs) ->
-  Rs;
-reduce({var, _, '_'}, _, Rs) ->
-  Rs;
-reduce({var, _, _} = V, T, Rs) ->
-  [{V, T} | Rs];
-reduce({cons, _, A, B}, T, Rs0) ->
-  Rs1 = reduce(A, ulist(T), Rs0),
-  reduce(B, T, Rs1);
-reduce({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
-  case length(Es) =/= length(Ts) of
-    true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
-    false ->
-      lists:foldl(fun({K, V}, Acc) ->
-                      reduce(K, V, Acc)
-                  end, Rs0, lists:zip(Es, Ts))
-  end;
-reduce({tuple, _L, Es}, _, Rs0) ->
-  lists:flatten([reduce(E, undefined, []) || E <- Es]) ++ Rs0;
-reduce({op, _, '++', {string, _, _}, {var, _, _} = V},
-       {terl_type, string} = T, Rs) ->
-  reduce(V, T, Rs);
-reduce(_, _, W) ->
-  W.
-
-
-ulist({list_type, T}) ->
-  T;
-ulist(_) ->
-  undefined.
-
 
 
 type_of({nil, _}, S) ->
@@ -698,7 +662,7 @@ type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
   {TT0, Scopes2} = type_of(T, Scopes1),
   TT1 = unwrap_list(T, TT0, L),
-  {assert_list_validity(TH, TT1, L), Scopes2};
+  {assert_list_validity(TH, TT1), Scopes2};
 
 type_of({tuple, L, Es}, Scopes0) ->
   {TEs, Scopes1} = lists:foldl(fun(E, {Ts, Scopes}) ->
@@ -739,7 +703,8 @@ assert_found_fun_type(_, _, _, _, S) ->
 find_exact_match(_, undefined) ->
   undefined;
 find_exact_match(TypedArgs, FTypes) ->
-  Matches = [{lists:all(fun({A1, A2}) -> type_equivalent(A1, A2) end,
+  Matches = [{lists:all(fun({A1, A2}) ->
+                            type_internal:type_equivalent(A1, A2) end,
                         lists:zip(TypedArgs, Is)), FT}
              || {fun_type, Is, _} = FT <- FTypes],
 
@@ -790,20 +755,14 @@ unwrap_list(_, T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
-assert_list_validity(TH, TT, L) ->
+assert_list_validity(TH, TT) ->
   case {TH, TT} of
     {undefined, _}          -> undefined;
     {_, undefined}          -> undefined;
-    {undefined, undefined}  -> undefined;
     {_, nothing}            -> {list_type, TH};
     {{terl_type, 'Any'}, _} -> {list_type, TT};
     {T1, T2} ->
-      case T1 =:= T2 of
-        true -> {list_type, T1};
-        false ->
-          throw({error,
-                L, {heterogeneous_list_not_supported, T1, T2}})
-      end
+      {list_type, type_internal:lcs(T1, T2)}
   end.
 
 assert_tuple_validity(TES, _L) ->
@@ -821,7 +780,7 @@ assert_type_equality(Var, L, Declared, Inferred) ->
     undefined ->
       ok;
     T ->
-      case type_equivalent(T, Declared) of
+      case type_internal:type_equivalent(T, Declared) of
         true -> ok;
         false ->
           throw({error,
@@ -919,41 +878,6 @@ find_fun_type(N, Ar, Scopes) ->
       T
   end.
 
-%% Check if given two types are equivalent
-type_equivalent({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
-  length(Is1) =:= length(Is2)
-    andalso
-    lists:all(fun(E) -> E =:= true end,
-              [type_equivalent(T1, T2) ||
-                {T1, T2} <- lists:zip(Is1, Is2)])
-    andalso
-    type_equivalent(O1, O2);
-type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
-  (length(Ts1) =:= length(Ts2)) andalso
-    lists:all(fun(E) -> E =:= true
-              end,
-              [lists:any(
-                 fun(E1) ->
-                     E1 =:= true
-                 end, [type_equivalent(T, TT) || TT <- Ts2])
-               || T <- Ts1]);
-type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
-  (length(Ts1) =:= length(Ts2)) andalso
-    lists:all(fun(E) -> E =:= true end,
-              [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
-type_equivalent({terl_atom_type, T}, {terl_type, T}) ->
-  true;
-type_equivalent({terl_type, T}, {terl_atom_type, T}) ->
-  true;
-type_equivalent({terl_type, 'Any'}, _) ->
-  true;
-type_equivalent(_, {terl_type, 'Any'}) ->
-  true;
-type_equivalent(T, T) ->
-  true;
-type_equivalent(_, _) ->
-  false.
-
 change_local_scope(S=#scopes{local = L, locals = LS, first_pass = F}) ->
   case F of
     false ->
@@ -1043,10 +967,6 @@ format_error({invalid_operator, Op, TR}) ->
   io_lib:format(
     "Illegal operator ~p on type ~s",
     [Op, pp_type(TR)]);
-format_error({heterogeneous_list_not_supported, T1, T2}) ->
-  io_lib:format(
-    "List of heterogeneous types of ~s and ~s is not allowed",
-    [pp_type(T1), pp_type(T2)]);
 format_error({can_not_infer_type, E}) ->
   io_lib:format(
     "Could not infer the type for ~s",

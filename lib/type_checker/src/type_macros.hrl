@@ -2,5 +2,6 @@
 -define(FLOAT, {terl_type, 'Float'}).
 -define(BOOLEAN, {terl_type, 'Boolean'}).
 -define(STRING, {terl_type, 'String'}).
+-define(ANY, {terl_type, 'Any'}).
 -define(INVALID, type_internal:invalid_operator()).
 -define(UNDEFINED, undefined).
