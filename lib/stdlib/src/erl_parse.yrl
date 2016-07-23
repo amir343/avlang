@@ -101,6 +101,8 @@ terl_type_alias -> atom var '::' terl_output_top dot
 
 terl_fun_type -> atom '::' terl_fun_type_100 dot
                    : terl_build_fun_sig('$1', '$3').
+terl_fun_type -> atom ':' atom '::' terl_fun_type_100 dot
+                   : terl_build_remote_fun_sig('$1', '$3', '$5').
 
 terl_fun_type_100 -> terl_gen_type : ['$1'].
 terl_fun_type_100 -> terl_gen_type ';' terl_fun_type_100 : ['$1' | '$3'].
@@ -130,6 +132,7 @@ terl_input -> '(' terl_gen_type ')' : '$2'.
 terl_input -> terl_type : '$1'.
 
 terl_type -> '[' terl_list_type ']' : {list_type, '$2'}.
+terl_type -> '{' '}' : {tuple_type, []}.
 terl_type -> '{' terl_tuple_type '}' : {tuple_type, '$2'}.
 terl_type -> '#' atom '{' terl_record_field_types '}'
                : terl_record_type('$2', '$4').
@@ -1390,6 +1393,9 @@ modify_anno1(E, Ac, _Mf) when not is_tuple(E), not is_list(E) -> {E,Ac}.
 
 terl_build_fun_sig({atom, L, Name}, Ts) ->
   {fun_sig, L, Name, Ts}.
+
+terl_build_remote_fun_sig({atom, L, Module}, {atom, L, Fun}, Ts) ->
+  {fun_remote_sig, L, Module, Fun, Ts}.
 
 terl_build_type(Tag) ->
   type_internal:type_tag(Tag).

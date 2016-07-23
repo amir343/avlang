@@ -161,6 +161,10 @@ type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
                      E1 =:= true
                  end, [type_equivalent(T, TT) || TT <- Ts2])
                || T <- Ts1]);
+type_equivalent({tuple_type, _}, {tuple_type, []}) ->
+  true;
+type_equivalent({tuple_type, []}, {tuple_type, _}) ->
+  true;
 type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
     lists:all(fun(E) -> E =:= true end,

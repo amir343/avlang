@@ -1,0 +1,10 @@
+%% -*- Erlang -*-
+[
+  "erlang:is_tuple :: (Any) -> Boolean."
+, "erlang:list_to_integer :: (String) -> Integer."
+, "erlang:element :: (Integer, {}) -> Any."
+
+, "is_tuple :: (Any) -> Boolean."
+, "list_to_integer :: (String) -> Integer."
+, "element :: (Integer, {}) -> Any."
+].
