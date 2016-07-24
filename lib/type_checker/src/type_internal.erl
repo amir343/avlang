@@ -6,6 +6,7 @@
         , invalid_operator/0
         , lcs/2
         , reduce/3
+        , sub_type_of/2
         , tag_built_in/1
         , type_equivalent/2
         , type_tag/1
@@ -161,13 +162,17 @@ type_equivalent({union_type, Ts1}, {union_type, Ts2}) ->
                      E1 =:= true
                  end, [type_equivalent(T, TT) || TT <- Ts2])
                || T <- Ts1]);
+type_equivalent({tuple_type, _}, {tuple_type, []}) ->
+  true;
+type_equivalent({tuple_type, []}, {tuple_type, _}) ->
+  true;
 type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
     lists:all(fun(E) -> E =:= true end,
               [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
-type_equivalent({terl_atom_type, T}, {terl_type, T}) ->
+type_equivalent({terl_atom_type, _}, {terl_type, 'Atom'}) ->
   true;
-type_equivalent({terl_type, T}, {terl_atom_type, T}) ->
+type_equivalent({terl_type, 'Atom'}, {terl_atom_type, _}) ->
   true;
 type_equivalent({terl_type, 'Any'}, _) ->
   true;
@@ -177,6 +182,27 @@ type_equivalent(T, T) ->
   true;
 type_equivalent(_, _) ->
   false.
+
+
+
+sub_type_of({fun_type, _, _} = FT1, {fun_type, _, _} = FT2) ->
+  type_equivalent(FT1, FT2);
+sub_type_of({union_type, Ts1}, {union_type, _} = UT2) ->
+  lists:all(fun(E) -> E =:= true end,
+            [sub_type_of(T, UT2) || T <- Ts1]);
+sub_type_of(T1, {union_type, Ts}) ->
+  lists:any(fun(E) -> E =:= true end,
+            [sub_type_of(T1, T) || T <- Ts]);
+sub_type_of({tuple_type, _} = TT1, {tuple_type, _} = TT2) ->
+  type_equivalent(TT1, TT2);
+sub_type_of({list_type, T1}, {list_type, T2}) ->
+  sub_type_of(T1, T2);
+sub_type_of(_, {terl_type, 'Term'}) ->
+  true;
+sub_type_of(_, {terl_type, 'Any'}) ->
+  true;
+sub_type_of(T1, T2) ->
+  type_equivalent(T1, T2) orelse false.
 
 
 %% Tries to pattern match LHS and RHS and infer type

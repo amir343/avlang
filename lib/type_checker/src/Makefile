@@ -54,9 +54,11 @@ BEAM_H = $(wildcard ../priv/beam_h/*.h)
 HRL_FILES= \
 	type_macros.hrl
 
+ERLANG_TYPES = ../priv/erlang_types.eterm
 
 ERL_FILES= $(MODULES:%=%.erl)
-INSTALL_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR)) $(APP_TARGET) $(APPUP_TARGET)
+INSTALL_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR)) $(APP_TARGET) \
+	$(APPUP_TARGET) $(ERLANG_TYPES)
 TARGET_FILES= $(INSTALL_FILES)
  
 APP_FILE= type_checker.app

@@ -23,24 +23,77 @@
         ]).
 
 
--record(state, { fun_sigs      = dict:new()
+-record(state, { fun_sigs         = dict:new()
                  %% {key, [{fun_sig, L, N, [T]}]}
-               , type_aliases  = dict:new()
+               , remote_fun_sigs  = dict:new()
+                 %% {key, [{fun_remote_sig, L, M, Fun, [T]}]}
+               , type_aliases     = dict:new()
                  %% {Key, {type_alias, L, N, T}}
-               , type_cons     = dict:new()
+               , type_cons        = dict:new()
                  %% {Key, {type_cons, L, N, P, T}}
-               , declared_fun  = dict:new()
+               , declared_fun     = dict:new()
                  %% {Key, [{function, ...}]}
-               , type_used     = gb_sets:new()
+               , type_used        = gb_sets:new()
                  %% Set(atom)
-               , type_used_loc = dict:new()
+               , type_used_loc    = dict:new()
                  %% {Key, [Line]}
+               , errors           = []
+               , erlang_types     = dict:new()
          }).
 
 -define(TYPE_MSG, type_check).
 
 module(Forms, FileName, Opts) ->
-  run_passes(standard_passes(), Forms, FileName, Opts, [], #state{}).
+  ErlangTypes = bootstrap_types(),
+  run_passes(standard_passes(),
+             Forms,
+             FileName,
+             Opts,
+             [],
+             #state{erlang_types = ErlangTypes}).
+
+bootstrap_types() ->
+  EbinDir = code:lib_dir(type_checker, priv),
+  {ok, [Term | _]} = file:consult(filename:join(EbinDir, "erlang_types.eterm")),
+  ParsedSignature = [begin
+                       try
+                         {ok, Tokens, _} = erl_scan:string(T),
+                         {ok, ParsedTokens} = erl_parse:parse(Tokens),
+                         ParsedTokens
+                       catch
+                           _:E ->
+                           io:format("Syntax error: ~p~n", [T]),
+                           throw(E)
+                       end
+                     end || T <- Term],
+  {Sigs, _} =
+    lists:foldl(
+      fun({fun_remote_sig, _, M, N, Ts}, {Dict1, Dict2}) ->
+          Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
+          {dict:append(Key,
+                       [substitute_type_alias(T, Dict2) || T <- Ts]
+                      , Dict1), Dict2};
+         ({fun_sig, _, N, Ts}, {Dict1, Dict2}) ->
+          {dict:append(atom_to_list(N),
+                       [substitute_type_alias(T, Dict2) || T <- Ts]
+                      , Dict1), Dict2};
+         ({type_alias, _, N, T}, {Dict1, Dict2}) ->
+          {Dict1, dict:store(N, substitute_type_alias(T, Dict2), Dict2)}
+      end, {dict:new(), dict:new()}, ParsedSignature),
+  Sigs.
+
+substitute_type_alias(T, Aliases) ->
+  type_map(T, fun(Type) ->
+                  case Type of
+                    {terl_generic_type, N} ->
+                      case dict:find(N, Aliases) of
+                        {ok, A} ->
+                          A;
+                        error -> Type
+                      end;
+                    _ -> Type
+                  end
+              end).
 
 run_passes([P | Ps], Fs, Fn, Opts, Ws0, State0) ->
   try
@@ -71,13 +124,21 @@ type_lint(Forms, FileName, _Opts, State) ->
   St = collect_types(Forms, State),
   check_consistency_type_cons(St, FileName),
   check_consistency_fun_sigs(St, FileName),
-  Ws1 = check_unsued_user_defined_types(FileName, St),
-  check_undefined_types(FileName, St),
-  match_fun_sig_with_declared_fun(St),
+  St1 = no_remote_fun_sig_declared(St),
+  Ws1 = check_unsued_user_defined_types(FileName, St1),
+  check_undefined_types(FileName, St1),
+  match_fun_sig_with_declared_fun(St1),
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
-  {ok, Ws1, St}.
+  Errs0 = St1#state.errors,
+  Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
+                   , gb_sets:to_list(gb_sets:from_list(Errs0))),
+
+  case length(Errs) of
+    0 -> {ok, Ws1, St1};
+    _ -> {error, [{FileName, Errs}], []}
+  end.
 
 type_check(Forms, FileName, _Opts, State) ->
   type_check0(Forms, FileName, State).
@@ -86,6 +147,8 @@ type_check(Forms, FileName, _Opts, State) ->
 collect_types([{fun_sig, L, _, Ts} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(Ts, L, St0),
   collect_types(Forms, add_fun_sigs(Form, St1));
+collect_types([{fun_remote_sig, _, _, _, _} = Form | Forms], St0) ->
+  collect_types(Forms, add_remote_fun_sigs(Form, St0));
 collect_types([{type_alias, L, _, T} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(T, L, St0),
   collect_types(Forms, add_type_alias(Form, St1));
@@ -202,6 +265,24 @@ add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{fun_sigs = FS}) ->
       St#state{fun_sigs = dict:append(N, F, FS)}
   end.
 
+%% Adds a new remote function signature to state record or throws
+%% an exception if this function signature is already defined.
+add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F
+                   , St=#state{remote_fun_sigs = FS}) ->
+  Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
+  case dict:find(Key, FS) of
+    {ok, Vs} ->
+      Ar = fun_arity(F),
+      case [V || V <- Vs, fun_arity(V) =:= Ar] of
+        [{_, L1, _, _} | _] ->
+          throw({error, L2, {duplicate_fun_sig_decl, M, N, L1, L2}});
+        _ ->
+          St#state{remote_fun_sigs = dict:append(Key, F, FS)}
+      end;
+    error ->
+      St#state{remote_fun_sigs = dict:append(Key, F, FS)}
+  end.
+
 %% Adds a new type alias to state record or throws an exception if this
 %% type alias is already defined.
 add_type_alias({type_alias, L2, N, _} = F, St=#state{type_aliases = TA}) ->
@@ -237,6 +318,12 @@ check_consistency_type_cons(#state{type_cons = TC}, FN) ->
                     no_terl_type_used_lhs(E)
                 end, dict:to_list(TC)).
 
+
+no_remote_fun_sig_declared(S=#state{remote_fun_sigs = FSigs, errors = Errs}) ->
+  Errors = [{L, ?TYPE_MSG, {no_remote_fun_sig_allowed, M, N}} ||
+             {_, RFS} <- dict:to_list(FSigs),
+             {fun_remote_sig, L, M, N, _} <- RFS],
+  S#state{errors = Errs ++ Errors}.
 
 %% All fun sigs clauses must have same arity
 check_consistency_fun_sigs(#state{fun_sigs = FS}, _FN) ->
@@ -283,6 +370,8 @@ no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
   end.
 
 fun_arity({fun_sig, _, _, [{fun_type, I, _} | _]}) ->
+  length(I);
+fun_arity({fun_remote_sig, _, _, _, [{fun_type, I, _} | _]}) ->
   length(I);
 fun_arity({fun_type, I, _}) ->
   length(I);
@@ -337,10 +426,35 @@ type_terminals({terl_user_defined, _} = T) ->
   [T];
 type_terminals({terl_atom_type, _} = T) ->
   [T];
+type_terminals({untyped_fun, nil, nil} = T) ->
+  [T];
 type_terminals(undefined) ->
   [undefined];
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
+
+
+type_map({fun_sig, L, N, Ts}, FMap) ->
+  {fun_sig, L, N, [type_map(T, FMap)|| T <- Ts]};
+type_map({fun_remote_sig, L, M, N, Ts}, FMap) ->
+  {fun_rempte_sig, L, M, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_alias, L, T}, FMap) ->
+  {type_alias, L, type_map(T, FMap)};
+type_map({fun_type, Is, O}, FMap) ->
+  {fun_type, [type_map(I, FMap) || I <- Is], type_map(O, FMap)};
+type_map({union_type, Ts}, FMap) ->
+  {union_type, [type_map(T, FMap) || T <- Ts]};
+type_map({list_type, T}, FMap) ->
+  {list_type, type_map(T, FMap)};
+type_map({tuple_type, Ts}, FMap) ->
+  {tuple_type, [type_map(T, FMap) || T <- Ts]};
+type_map({record_type, N, Ts}, FMap) ->
+  {record_type, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_instance, N, Ts}, FMap) ->
+  {type_instance, N, [type_map(T, FMap) || T <- Ts]};
+type_map(T, FMap) ->
+  FMap(T).
+
 
 
 %%%%%%%% Type check, scary stuff! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -722,15 +836,27 @@ type_of({call, L, NN, Args}, Scopes0) ->
   FTypes = find_fun_type(N, Arity, Scopes1),
   Scopes2 = assert_found_fun_type(FTypes, L, NN, Arity, Scopes1),
   {TypedArgs, Scopes3} = lists:foldl(fun(Arg, {Ts, S0}) ->
-                                  {T, S1} = type_of(Arg, S0),
-                                  {Ts ++ [T], S1}
-                              end, {[], Scopes2}, Args),
+                                         {T, S1} = type_of(Arg, S0),
+                                         {Ts ++ [T], S1}
+                                     end, {[], Scopes2}, Args),
+  Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
+  Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
 
-  Res = case find_exact_match(TypedArgs, FTypes) of
-          undefined -> undefined;
-          {fun_type, _, O} -> O
-        end,
-  {Res, Scopes3};
+  case length(Matches) of
+    0 ->
+      Errs =
+        lists:flatten(
+          [generate_error_for_call(N, Arity, L, NonMatch)
+           || {_, NonMatch, _} <- Res]),
+      {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ Errs}};
+    1 ->
+      {fun_type, _, O} = element(3, hd(Matches)),
+      {O, Scopes3};
+    _ ->
+      MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
+      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
+      {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ [Err]}}
+  end;
 
 type_of(T, Scopes) ->
   io:format("type_of ~p not implemented~n", [T]),
@@ -741,22 +867,33 @@ assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
 assert_found_fun_type(_, _, _, _, S) ->
   S.
 
-find_exact_match(_, undefined) ->
-  undefined;
-find_exact_match(TypedArgs, FTypes) ->
-  Matches = [{lists:all(fun({A1, A2}) ->
-                            type_internal:type_equivalent(A1, A2) end,
-                        lists:zip(TypedArgs, Is)), FT}
-             || {fun_type, Is, _} = FT <- FTypes],
+generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
+  {Res, _} =
+    lists:foldl(
+      fun(Arg, {Acc, Ind}) ->
+          case Arg of
+            true -> {Acc, Ind + 1};
+            {false, Got, Expected} ->
+              {Acc ++
+                 [{L, ?TYPE_MSG,
+                   {non_matching_type_fun_call, N, Arity, Ind, Got, Expected}}]
+              , Ind + 1}
+          end
+      end, {[], 1}, NonMatchedArgList),
+  Res.
 
-  ExactMatches = lists:filter(fun({M, _}) -> M =:= true
-                              end, Matches),
-  case length(ExactMatches) of
-    0 ->
-      undefined;
-    %% TODO: If more than one matches?
-    _ -> element(2, hd(ExactMatches))
-  end.
+find_exact_match(_, undefined) ->
+  {false, [], undefined};
+find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
+  Res = lists:foldl(fun({T1, T2}, L) ->
+                        case type_internal:sub_type_of(T1, T2) of
+                          true -> L ++ [true];
+                          false -> L ++ [{false, T1, T2}]
+                        end
+                    end, [], lists:zip(TypedArgs, Is)),
+
+  {lists:all(fun(E) -> E =:= true
+                 end, Res), Res, FType}.
 
 dispatch(TL, Op, TR) ->
   dispatch_result(type_internal:dispatch(TL, Op, TR)).
@@ -937,18 +1074,33 @@ find_fun_type_in_global(#scopes{global = GS}, N, Ar) ->
     error -> []
   end.
 
-%% First checks to see if there exits a type definition in global scope
-%% if not checks the function signature
+%% First checks to see if there exits a type definition in erlang types
+%% then in global scope and finally in function signature
 find_fun_type(N, Ar, Scopes) ->
-  case find_fun_type_in_global(Scopes, N, Ar) of
+  case find_fun_type_in_erlang_types(nil, N, Ar, Scopes) of
     [] ->
-      case find_fun_sig(N, Ar, Scopes) of
-        undefined -> undefined;
-        {fun_sig, _, _, T} ->
-          T
+      case find_fun_type_in_global(Scopes, N, Ar) of
+        [] ->
+          case find_fun_sig(N, Ar, Scopes) of
+            undefined          -> undefined;
+            {fun_sig, _, _, T} -> T
+          end;
+        T -> T
       end;
-    T ->
-      T
+    T -> T
+  end.
+
+find_fun_type_in_erlang_types(M, N, Ar, #scopes{state = State}) ->
+  Key = case M of
+          nil -> atom_to_list(N);
+          _   -> atom_to_list(M) ++ "_" ++ atom_to_list(N)
+        end,
+  ETypes = State#state.erlang_types,
+  case dict:find(Key, ETypes) of
+    {ok, FList} ->
+      lists:flatten(
+        lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
+    error -> []
   end.
 
 start_ls(Name, S=#scopes{}) ->
@@ -978,6 +1130,10 @@ find_ls(Name, #scopes{locals = LS}) ->
 
 %%% Format errors --------------------------------------------------------------
 
+format_error({no_remote_fun_sig_allowed, M, N}) ->
+  io_lib:format(
+    "No remote function signature is allowed: '~p:~p'",
+    [M, N]);
 format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
   io_lib:format(
     "Duplicate function signature definitions '~w' at line ~p and ~p.",
@@ -1067,7 +1223,7 @@ format_error({can_not_infer_fun_type, N, A, FType}) ->
 format_error({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
   io_lib:format(
     "Declared function signature for '~p/~p' does not match the inferred " ++
-      "one.~n\t\tExpected:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
+      "one.~n\t\tDeclared:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
     [N, A, pp_type(Sig), pp_type(FType)]);
 format_error({multiple_inferred_type, Expr, Ts}) ->
   io_lib:format(
@@ -1078,8 +1234,32 @@ format_error({can_not_infer_type_fun, NN, Ar}) ->
     "Can not infer type for ~s/~p or function does not exist",
     [pp_expr(NN), Ar]
    );
+format_error({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
+  io_lib:format(
+    "~s argument in function call '~p/~p' has non-matching types, " ++
+      "expected: ~s, but got: ~s",
+    [ind_presentation(Ind), N, Arity, pp_type(Expected), pp_type(Got)]
+   );
+format_error({multiple_match_for_function_call, MatchingTypes}) ->
+  Matches = [pp_type(T) || T <- MatchingTypes],
+  io_lib:format(
+    "Function call can be matched will mulitple types:~n\t~s",
+    [list_to_string_sep(Matches, "~n\t")]
+   );
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
+
+ind_presentation(N) ->
+  integer_to_list(N) ++ ind_presentation0(N rem 10).
+
+ind_presentation0(1) ->
+  "st";
+ind_presentation0(2) ->
+  "nd";
+ind_presentation0(3) ->
+  "rd";
+ind_presentation0(_) ->
+  "th".
 
 list_to_string([], Res) ->
   Res;
