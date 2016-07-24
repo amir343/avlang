@@ -1066,8 +1066,16 @@ update_global(S=#scopes{global = GS}, N, Ar, FTypes) ->
                end,
   S#scopes{global = dict:store(N, FsExceptN ++ [FTypes], GS)}.
 
-find_fun_type_in_global(#scopes{global = GS}, N, Ar) ->
+find_fun_type_in_global(N, Ar, #scopes{global = GS}) ->
   case dict:find(N, GS) of
+    {ok, FList} ->
+      lists:flatten(
+        lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
+    error -> []
+  end.
+
+find_fun_type_in_local(N, Ar, #scopes{local = LS}) ->
+  case dict:find(N, LS#local_scope.vars) of
     {ok, FList} ->
       lists:flatten(
         lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
@@ -1077,18 +1085,29 @@ find_fun_type_in_global(#scopes{global = GS}, N, Ar) ->
 %% First checks to see if there exits a type definition in erlang types
 %% then in global scope and finally in function signature
 find_fun_type(N, Ar, Scopes) ->
-  case find_fun_type_in_erlang_types(nil, N, Ar, Scopes) of
-    [] ->
-      case find_fun_type_in_global(Scopes, N, Ar) of
-        [] ->
-          case find_fun_sig(N, Ar, Scopes) of
-            undefined          -> undefined;
-            {fun_sig, _, _, T} -> T
-          end;
-        T -> T
-      end;
-    T -> T
+  Priorities = [ fun find_local_fun_type_in_erlang_types/3
+               , fun find_fun_type_in_local/3
+               , fun find_fun_type_in_global/3
+               , fun find_fun_sig/3],
+
+  case find_fun_type0(Priorities, N, Ar, Scopes) of
+    {fun_sig, _, _, T} ->
+      T;
+    Other -> Other
   end.
+
+find_fun_type0([], _, _, _) ->
+  undefined;
+find_fun_type0([F | T], N, Ar, Scopes) ->
+  case F(N, Ar, Scopes) of
+    [] ->
+      find_fun_type0(T, N, Ar, Scopes);
+    Other ->
+      Other
+  end.
+
+find_local_fun_type_in_erlang_types(N, Ar, Scopes) ->
+  find_fun_type_in_erlang_types(nil, N, Ar, Scopes).
 
 find_fun_type_in_erlang_types(M, N, Ar, #scopes{state = State}) ->
   Key = case M of
