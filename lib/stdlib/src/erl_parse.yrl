@@ -131,6 +131,7 @@ terl_input_top -> terl_input : '$1'.
 terl_input -> '(' terl_gen_type ')' : '$2'.
 terl_input -> terl_type : '$1'.
 
+terl_type -> '(' '..' ')' '->' '..' : {untyped_fun, nil, nil}.
 terl_type -> '[' terl_list_type ']' : {list_type, '$2'}.
 terl_type -> '{' '}' : {tuple_type, []}.
 terl_type -> '{' terl_tuple_type '}' : {tuple_type, '$2'}.
