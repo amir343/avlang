@@ -56,16 +56,44 @@ bootstrap_types() ->
   EbinDir = code:lib_dir(type_checker, priv),
   {ok, [Term | _]} = file:consult(filename:join(EbinDir, "erlang_types.eterm")),
   ParsedSignature = [begin
-                       {ok, Tokens, _} = erl_scan:string(T),
-                       {ok, ParsedTokens} = erl_parse:parse(Tokens),
-                       ParsedTokens
+                       try
+                         {ok, Tokens, _} = erl_scan:string(T),
+                         {ok, ParsedTokens} = erl_parse:parse(Tokens),
+                         ParsedTokens
+                       catch
+                           _:E ->
+                           io:format("Syntax error: ~p~n", [T]),
+                           throw(E)
+                       end
                      end || T <- Term],
-  lists:foldl(fun({fun_remote_sig, _, M, N, T}, Dict) ->
-                  Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
-                  dict:append(Key, T, Dict);
-                 ({fun_sig, _, N, T}, Dict) ->
-                  dict:append(atom_to_list(N), T, Dict)
-              end, dict:new(), ParsedSignature).
+  {Sigs, _} =
+    lists:foldl(
+      fun({fun_remote_sig, _, M, N, Ts}, {Dict1, Dict2}) ->
+          Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
+          {dict:append(Key,
+                       [substitute_type_alias(T, Dict2) || T <- Ts]
+                      , Dict1), Dict2};
+         ({fun_sig, _, N, Ts}, {Dict1, Dict2}) ->
+          {dict:append(atom_to_list(N),
+                       [substitute_type_alias(T, Dict2) || T <- Ts]
+                      , Dict1), Dict2};
+         ({type_alias, _, N, T}, {Dict1, Dict2}) ->
+          {Dict1, dict:store(N, substitute_type_alias(T, Dict2), Dict2)}
+      end, {dict:new(), dict:new()}, ParsedSignature),
+  Sigs.
+
+substitute_type_alias(T, Aliases) ->
+  type_map(T, fun(Type) ->
+                  case Type of
+                    {terl_generic_type, N} ->
+                      case dict:find(N, Aliases) of
+                        {ok, A} ->
+                          A;
+                        error -> Type
+                      end;
+                    _ -> Type
+                  end
+              end).
 
 run_passes([P | Ps], Fs, Fn, Opts, Ws0, State0) ->
   try
@@ -398,10 +426,35 @@ type_terminals({terl_user_defined, _} = T) ->
   [T];
 type_terminals({terl_atom_type, _} = T) ->
   [T];
+type_terminals({untyped_fun, nil, nil} = T) ->
+  [T];
 type_terminals(undefined) ->
   [undefined];
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
+
+
+type_map({fun_sig, L, N, Ts}, FMap) ->
+  {fun_sig, L, N, [type_map(T, FMap)|| T <- Ts]};
+type_map({fun_remote_sig, L, M, N, Ts}, FMap) ->
+  {fun_rempte_sig, L, M, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_alias, L, T}, FMap) ->
+  {type_alias, L, type_map(T, FMap)};
+type_map({fun_type, Is, O}, FMap) ->
+  {fun_type, [type_map(I, FMap) || I <- Is], type_map(O, FMap)};
+type_map({union_type, Ts}, FMap) ->
+  {union_type, [type_map(T, FMap) || T <- Ts]};
+type_map({list_type, T}, FMap) ->
+  {list_type, type_map(T, FMap)};
+type_map({tuple_type, Ts}, FMap) ->
+  {tuple_type, [type_map(T, FMap) || T <- Ts]};
+type_map({record_type, N, Ts}, FMap) ->
+  {record_type, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_instance, N, Ts}, FMap) ->
+  {type_instance, N, [type_map(T, FMap) || T <- Ts]};
+type_map(T, FMap) ->
+  FMap(T).
+
 
 
 %%%%%%%% Type check, scary stuff! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -783,15 +836,27 @@ type_of({call, L, NN, Args}, Scopes0) ->
   FTypes = find_fun_type(N, Arity, Scopes1),
   Scopes2 = assert_found_fun_type(FTypes, L, NN, Arity, Scopes1),
   {TypedArgs, Scopes3} = lists:foldl(fun(Arg, {Ts, S0}) ->
-                                  {T, S1} = type_of(Arg, S0),
-                                  {Ts ++ [T], S1}
-                              end, {[], Scopes2}, Args),
+                                         {T, S1} = type_of(Arg, S0),
+                                         {Ts ++ [T], S1}
+                                     end, {[], Scopes2}, Args),
+  Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
+  Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
 
-  Res = case find_exact_match(TypedArgs, FTypes) of
-          undefined -> undefined;
-          {fun_type, _, O} -> O
-        end,
-  {Res, Scopes3};
+  case length(Matches) of
+    0 ->
+      Errs =
+        lists:flatten(
+          [generate_error_for_call(N, Arity, L, NonMatch)
+           || {_, NonMatch, _} <- Res]),
+      {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ Errs}};
+    1 ->
+      {fun_type, _, O} = element(3, hd(Matches)),
+      {O, Scopes3};
+    _ ->
+      MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
+      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
+      {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ [Err]}}
+  end;
 
 type_of(T, Scopes) ->
   io:format("type_of ~p not implemented~n", [T]),
@@ -802,22 +867,33 @@ assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
 assert_found_fun_type(_, _, _, _, S) ->
   S.
 
-find_exact_match(_, undefined) ->
-  undefined;
-find_exact_match(TypedArgs, FTypes) ->
-  Matches = [{lists:all(fun({A1, A2}) ->
-                            type_internal:type_equivalent(A1, A2) end,
-                        lists:zip(TypedArgs, Is)), FT}
-             || {fun_type, Is, _} = FT <- FTypes],
+generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
+  {Res, _} =
+    lists:foldl(
+      fun(Arg, {Acc, Ind}) ->
+          case Arg of
+            true -> {Acc, Ind + 1};
+            {false, Got, Expected} ->
+              {Acc ++
+                 [{L, ?TYPE_MSG,
+                   {non_matching_type_fun_call, N, Arity, Ind, Got, Expected}}]
+              , Ind + 1}
+          end
+      end, {[], 1}, NonMatchedArgList),
+  Res.
 
-  ExactMatches = lists:filter(fun({M, _}) -> M =:= true
-                              end, Matches),
-  case length(ExactMatches) of
-    0 ->
-      undefined;
-    %% TODO: If more than one matches?
-    _ -> element(2, hd(ExactMatches))
-  end.
+find_exact_match(_, undefined) ->
+  {false, [], undefined};
+find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
+  Res = lists:foldl(fun({T1, T2}, L) ->
+                        case type_internal:sub_type_of(T1, T2) of
+                          true -> L ++ [true];
+                          false -> L ++ [{false, T1, T2}]
+                        end
+                    end, [], lists:zip(TypedArgs, Is)),
+
+  {lists:all(fun(E) -> E =:= true
+                 end, Res), Res, FType}.
 
 dispatch(TL, Op, TR) ->
   dispatch_result(type_internal:dispatch(TL, Op, TR)).
@@ -1147,7 +1223,7 @@ format_error({can_not_infer_fun_type, N, A, FType}) ->
 format_error({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
   io_lib:format(
     "Declared function signature for '~p/~p' does not match the inferred " ++
-      "one.~n\t\tExpected:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
+      "one.~n\t\tDeclared:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
     [N, A, pp_type(Sig), pp_type(FType)]);
 format_error({multiple_inferred_type, Expr, Ts}) ->
   io_lib:format(
@@ -1158,8 +1234,32 @@ format_error({can_not_infer_type_fun, NN, Ar}) ->
     "Can not infer type for ~s/~p or function does not exist",
     [pp_expr(NN), Ar]
    );
+format_error({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
+  io_lib:format(
+    "~s argument in function call '~p/~p' has non-matching types, " ++
+      "expected: ~s, but got: ~s",
+    [ind_presentation(Ind), N, Arity, pp_type(Expected), pp_type(Got)]
+   );
+format_error({multiple_match_for_function_call, MatchingTypes}) ->
+  Matches = [pp_type(T) || T <- MatchingTypes],
+  io_lib:format(
+    "Function call can be matched will mulitple types:~n\t~s",
+    [list_to_string_sep(Matches, "~n\t")]
+   );
 format_error(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
+
+ind_presentation(N) ->
+  integer_to_list(N) ++ ind_presentation0(N rem 10).
+
+ind_presentation0(1) ->
+  "st";
+ind_presentation0(2) ->
+  "nd";
+ind_presentation0(3) ->
+  "rd";
+ind_presentation0(_) ->
+  "th".
 
 list_to_string([], Res) ->
   Res;

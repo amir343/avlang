@@ -150,7 +150,7 @@ terl_type_params -> terl_type ',' terl_type_params : ['$1' | '$3'].
 terl_type_params -> terl_gen_type : ['$1'].
 terl_type_params -> terl_gen_type ',' terl_type_params : ['$1' | '$3' ].
 
-terl_list_type -> '(' terl_gen_type ')' : '$2'.
+terl_list_type -> '(' terl_output_top ')': '$2'.
 terl_list_type -> terl_type : '$1'.
 
 terl_record_field_types -> terl_record_field_type ',' terl_record_field_types
