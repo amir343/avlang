@@ -1,3 +1,4 @@
+
 %% Current abstract forms from erl_parser:
 %%
 %% {fun_sig, Line, Name, Type}
@@ -19,7 +20,6 @@
 -module(type_check).
 
 -export([ module/3
-        , format_error/1
         ]).
 
 
@@ -41,7 +41,7 @@
                , erlang_types     = dict:new()
          }).
 
--define(TYPE_MSG, type_check).
+-define(TYPE_MSG, type_err_msg).
 
 module(Forms, FileName, Opts) ->
   ErlangTypes = bootstrap_types(),
@@ -462,13 +462,14 @@ type_map(T, FMap) ->
 -record(meta_var, { type = undefined
                   , line = -1}).
 
--record(local_scope, { name         = nil
-                     , args         = dict:new()
+-record(local_scope, { name                = nil
+                     , args                = dict:new()
                        %% vars :: Dict(Var, #meta_var)
-                     , vars         = dict:new()
-                     , type         = nil
-                       %% Pointer to local scope name
-                     , outer_scope  = nil}).
+                     , vars                = dict:new()
+                     , type                = nil
+                       %% Pointer to outer local scope name
+                     , outer_scope         = nil
+                     , last_nr_undefined   = infinty}).
 
 -record(scopes, { local             = nil
                 , locals            = dict:new()
@@ -505,7 +506,8 @@ type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
   %% Only for sake of debugging
   lists:foreach(fun({N, FTypes}) ->
                     TS = [FT1 || FT <- FTypes, FT1 <- FT],
-                    [io:format("~p/~p :: ~s~n", [N, fun_arity(T), pp_type(T)])
+                    [io:format("~p/~p :: ~s~n",
+                               [N, fun_arity(T), ?TYPE_MSG:pp_type(T)])
                      || T <- TS]
                 end, dict:to_list(Scopes1#scopes.global)),
   Undefs = count_undefined(Scopes1),
@@ -670,7 +672,7 @@ infer_function_clause(NAL, FT1, FT2, S=#scopes{}) ->
       {N, A, L} = NAL,
       Err = {L, ?TYPE_MSG,
              {declared_inferred_fun_type_do_not_match, N, A, FT2, FT1}},
-      {undefined, S#scopes{errors = S#scopes.errors ++ [Err]}}
+      {FT1, S#scopes{errors = S#scopes.errors ++ [Err]}}
   end.
 
 validate_fun_type(NAL, FTypes, Scopes) ->
@@ -691,20 +693,28 @@ validate_fun_type0(NAL, FType, S=#scopes{}) ->
 type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
   case FP of
     true ->
-      type_check_clause0(FSig, Cls, S);
+      {Res, S1} = type_check_clause0(FSig, Cls, S),
+      S2 = update_undefined(S1),
+      {Res, S2};
     false ->
-      UnDefs = count_undefined_local_scope(LS),
-      case UnDefs of
+      UnDefs0 = LS#local_scope.last_nr_undefined,
+      case UnDefs0 of
         0 ->
           io:format("Skipping clause at line ~p, has type ~s~n",
-                    [element(2, Cls), pp_type(LS#local_scope.type)]),
+                    [element(2, Cls), ?TYPE_MSG:pp_type(LS#local_scope.type)]),
           {LS#local_scope.type, S};
         N ->
           io:format("Clause at line ~p has ~p undefined types~n",
                     [element(2, Cls), N]),
-          type_check_clause0(FSig, Cls, S)
+          {Res, S1} = type_check_clause0(FSig, Cls, S),
+          S2 = update_undefined(S1),
+          {Res, S2}
       end
   end.
+
+update_undefined(S0=#scopes{local = L}) ->
+  UnDefs1 = count_undefined_local_scope(L),
+  update_undefined_types_in_local(UnDefs1, S0).
 
 type_check_clause0(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
   Scope1 = lists:foldl(fun(Var, S0) ->
@@ -765,7 +775,7 @@ insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
 
 insert_args0(Var, L, Type, S) ->
   LS = (S#scopes.local),
-  io:format("~p :: ~s~n", [Var, pp_type(Type)]),
+  io:format("~p :: ~s~n", [Var, ?TYPE_MSG:pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
   S#scopes{local =
              LS#local_scope{vars =
@@ -1034,7 +1044,7 @@ update_local(S=#scopes{}, {var, L, V}, Type) ->
                   [{L, ?TYPE_MSG, {can_not_infer_type, V}}
                    || type_defined_in_local(V, S)]}};
     _ ->
-      io:format("~p :: ~s~n", [V, pp_type(Type)]),
+      io:format("~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
       {Type, S1}
   end;
 
@@ -1091,8 +1101,8 @@ find_fun_type(N, Ar, Scopes) ->
                , fun find_fun_sig/3],
 
   case find_fun_type0(Priorities, N, Ar, Scopes) of
-    {fun_sig, _, _, T} ->
-      T;
+    {fun_sig, _, _, T} -> T;
+    undefined -> [undefined];
     Other -> Other
   end.
 
@@ -1129,6 +1139,10 @@ start_ls(Name, S=#scopes{}) ->
 sync_ls(Name, S=#scopes{local = L, locals = LS}) ->
   S#scopes{locals = dict:store(Name, L, LS)}.
 
+update_undefined_types_in_local(UnDefs, S=#scopes{local = L}) ->
+  L1 = L#local_scope{last_nr_undefined = UnDefs},
+  S#scopes{local = L1}.
+
 find_ls(Name, #scopes{locals = LS}) ->
   case dict:find(Name, LS) of
     {ok, L} ->
@@ -1148,187 +1162,3 @@ find_ls(Name, #scopes{locals = LS}) ->
 %%   end.
 
 %%% Format errors --------------------------------------------------------------
-
-format_error({no_remote_fun_sig_allowed, M, N}) ->
-  io_lib:format(
-    "No remote function signature is allowed: '~p:~p'",
-    [M, N]);
-format_error({duplicate_fun_sig_decl, N, L1, L2}) ->
-  io_lib:format(
-    "Duplicate function signature definitions '~w' at line ~p and ~p.",
-    [N, L1, L2]);
-format_error({duplicate_type_alias_decl, N, L1, L2}) ->
-  io_lib:format(
-    "Type alias definition '~w' at line ~p is already defined with "
-    ++ "the same name at ~p.",
-    [N, L2, L1]);
-format_error({duplicate_type_cons_decl, N, L1, L2}) ->
-  io_lib:format(
-    "Type constructor definition '~w' at line ~p is already defined"
-    ++  " with same name at ~p.",
-    [N, L2, L1]);
-format_error({no_fun_decl_found_for_sig, N, L2}) ->
-  io_lib:format(
-    "No function implementation found for declared function signature '~w' "
-    ++ "at line ~p.",
-    [N, L2]);
-format_error({no_matching_fun_decl_for_fun_sig, N, Ar, L2}) ->
-  io_lib:format(
-    "No function implementation matched with declared function signature "
-    ++ "'~w'/~p at line ~p.",
-    [N, Ar, L2]);
-format_error({fun_sig_clause_arity_not_match, N}) ->
-  io_lib:format(
-    "Function signature ~w has clauses with different arity.",
-   [N]);
-format_error({multi_match_fun_decl_for_fun_sig, N, L2}) ->
-  io_lib:format(
-    "Multiple function implementations matched with declared function"
-    ++ " signature '~w' at line ~p. This is a fatal error in compiler!",
-    [N, L2]);
-format_error({type_alias_defined_not_used, N}) ->
-  io_lib:format(
-    "Type alias ~w defined but never used",
-    [N]);
-format_error({undefined_type, N}) ->
-  io_lib:format(
-    "Undefined type '~w'",
-    [N]);
-format_error({tc_generic_type_not_used_rhs, Ts}) ->
-  io_lib:format(
-    "Generic type parameter(s) ~s is not used in the right hand side of"
-    ++ " type constructor",
-    [list_to_string(Ts, "")]);
-format_error({tc_generic_type_not_used_lhs, Ts}) ->
-  io_lib:format(
-    "Generic type parameter(s) ~s is not defined in the left hand side of"
-    ++ " type constructor",
-    [list_to_string(Ts, "")]);
-format_error({tc_only_generic_type_lhs, TI}) ->
-  io_lib:format(
-    "Only generic type parameters are allowed in left hand side of "
-    ++ "type constructor definitions. ~s has/have violated this rule.",
-    [list_to_string(TI, "")]);
-format_error({declared_inferred_not_match, Var, Declared, Inferred}) ->
-  io_lib:format(
-    "Expected variable ~p to be of type '~s' but is '~s'",
-    [Var, pp_type(Declared), pp_type(Inferred)]);
-format_error({invalid_operator, Op, TL, TR}) ->
-  io_lib:format(
-    "Invalid operator ~p on types ~s and ~s",
-    [Op, pp_type(TL), pp_type(TR)]);
-format_error({invalid_operator, Op, TR}) ->
-  io_lib:format(
-    "Illegal operator ~p on type ~s",
-    [Op, pp_type(TR)]);
-format_error({can_not_infer_type, E}) ->
-  io_lib:format(
-    "Could not infer the type for ~s",
-    [pp_expr(E)]);
-format_error({not_list_cons_position, T}) ->
-  io_lib:format(
-    "Expected a type of list in cons position but found ~s",
-    [pp_type(T)]);
-format_error({match_on_unequally_sized_tuple, T}) ->
-  io_lib:format(
-    "Match on different tuple sizes. Right hand side tuple ~s is " ++
-      "different from left hand side",
-    [pp_type(T)]);
-format_error({can_not_infer_fun_type, N, A, FType}) ->
-  io_lib:format(
-    "Type system did its best to infer the type for '~p/~p' " ++
-      "and what it got was '~s'.",
-    [N, A, pp_type(FType)]);
-format_error({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
-  io_lib:format(
-    "Declared function signature for '~p/~p' does not match the inferred " ++
-      "one.~n\t\tDeclared:~n\t\t\t'~s'~n\t\tbut inferred:~n\t\t\t'~s'.",
-    [N, A, pp_type(Sig), pp_type(FType)]);
-format_error({multiple_inferred_type, Expr, Ts}) ->
-  io_lib:format(
-    "Multiple types can be inferred for '~s':~n\t\t~s",
-    [pp_expr(Expr), list_to_string_sep([pp_type(T) || T <- Ts], ", ")]);
-format_error({can_not_infer_type_fun, NN, Ar}) ->
-  io_lib:format(
-    "Can not infer type for ~s/~p or function does not exist",
-    [pp_expr(NN), Ar]
-   );
-format_error({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
-  io_lib:format(
-    "~s argument in function call '~p/~p' has non-matching types, " ++
-      "expected: ~s, but got: ~s",
-    [ind_presentation(Ind), N, Arity, pp_type(Expected), pp_type(Got)]
-   );
-format_error({multiple_match_for_function_call, MatchingTypes}) ->
-  Matches = [pp_type(T) || T <- MatchingTypes],
-  io_lib:format(
-    "Function call can be matched will mulitple types:~n\t~s",
-    [list_to_string_sep(Matches, "~n\t")]
-   );
-format_error(W) ->
-  io_lib:format("Undefined Error in type system: ~p ", [W]).
-
-ind_presentation(N) ->
-  integer_to_list(N) ++ ind_presentation0(N rem 10).
-
-ind_presentation0(1) ->
-  "st";
-ind_presentation0(2) ->
-  "nd";
-ind_presentation0(3) ->
-  "rd";
-ind_presentation0(_) ->
-  "th".
-
-list_to_string([], Res) ->
-  Res;
-list_to_string([H], Res) ->
-  list_to_string([], io_lib:format("~s~p", [Res, atom_to_list(H)]));
-list_to_string([H|[_, _] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p, ", [Res, atom_to_list(H)]));
-list_to_string([H|[_] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p and ", [Res, atom_to_list(H)])).
-
-
-pp_type({terl_type, T}) ->
-  io_lib:format("~s", [T]);
-pp_type({list_type, T}) ->
-  io_lib:format("[~s]", [pp_type(T)]);
-pp_type({tuple_type, Ts}) ->
-  TT = [pp_type(T) || T <- Ts],
-  io_lib:format("{~s}", [list_to_string_sep(TT, ", ")]);
-pp_type({fun_type, Is, O}) ->
-  TIs = [pp_type(I) || I <- Is],
-  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), pp_type(O)]);
-pp_type({union_type, Ts}) ->
-  TEs = [pp_type(T) || T <- Ts],
-  io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);
-pp_type({terl_atom_type, T}) ->
-  io_lib:format("~s", [T]);
-pp_type(undefined) ->
-  "?";
-pp_type(T) ->
-  T.
-
-pp_expr({var, _, V}) ->
-  io_lib:format("~s", [V]);
-pp_expr({integer, _, V}) ->
-  io_lib:format("~p", [V]);
-pp_expr({atom, _, V}) ->
-  io_lib:format("~p", [V]);
-pp_expr({op, _, Op, L, R}) ->
-  io_lib:format("~s ~s ~s", [pp_expr(L), Op, pp_expr(R)]);
-pp_expr(S) when is_list(S) ->
-  io_lib:format("~s", [S]);
-pp_expr(V) ->
-  io_lib:format("~p", [V]).
-
-list_to_string_sep([], _) ->
-  "";
-list_to_string_sep(List, Sep) ->
-  lists:flatten(lists:reverse(list_to_string_sep1(List, Sep, []))).
-
-list_to_string_sep1([Head | []], _Sep, Acc) ->
-  [Head | Acc];
-list_to_string_sep1([Head | Tail], Sep, Acc) ->
-  list_to_string_sep1(Tail, Sep, [Sep, Head | Acc]).

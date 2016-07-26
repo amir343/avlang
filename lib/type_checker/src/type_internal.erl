@@ -4,7 +4,10 @@
         , dispatch/2
         , dispatch/3
         , invalid_operator/0
+        , lcs/1
         , lcs/2
+        , op/1
+        , op/2
         , reduce/3
         , sub_type_of/2
         , tag_built_in/1
@@ -12,84 +15,68 @@
         , type_tag/1
         ]).
 
+-include("type_macros.hrl").
+
+
+module_of({terl_type, 'Integer'}) ->
+  ?INTEGER_MOD;
+module_of({terl_type, 'Float'}) ->
+  ?FLOAT_MOD;
+module_of({terl_type, 'String'}) ->
+  ?STRING_MOD;
+module_of({terl_type, 'Any'}) ->
+  ?ANY_MOD;
+module_of({terl_type, 'Boolean'}) ->
+  ?BOOLEAN_MOD;
+module_of({union_type, _}) ->
+  ?UNION_MOD;
+module_of({list_type, _}) ->
+  ?LIST_MOD;
+module_of(W) ->
+  io:format("Module_of is not defined for ~p~n", [W]),
+  ?MODULE.
+
+
+
 %% Binary operator dispatcher to respective types
 dispatch(undefined, _, undefined) ->
   undefined;
 dispatch(undefined, Op, T) ->
   dispatch(T, Op, undefined);
 
-dispatch({union_type, Ts}, Op, T) ->
-  dispatch(T, Op, {union_type, Ts});
-
-dispatch({_, 'Integer'} = T, Op, {union_type, Ts}) ->
-  [dispatch(T, Op, T1) || T1 <- Ts];
-dispatch({_, 'Integer'}, Op, {_, T}) ->
-  terl_integer:op(Op, T);
-dispatch({_, 'Integer'}, Op, undefined) ->
-  terl_integer:op(Op, undefined);
-
-dispatch({_, 'Float'} = T, Op, {union_type, Ts}) ->
-  [dispatch(T, Op, T1) || T1 <- Ts];
-dispatch({_, 'Float'}, Op, {_, T}) ->
-  terl_float:op(Op, T);
-dispatch({_, 'Float'}, Op, undefined) ->
-  terl_float:op(Op, undefined);
-
-
-dispatch({_, 'Boolean'} = T, Op, {union_type, Ts}) ->
-  [dispatch(T, Op, T1) || T1 <- Ts];
-dispatch({_, 'Boolean'}, Op, {_, T}) ->
-  terl_boolean:op(Op, T);
-dispatch({_, 'Boolean'}, Op, undefined) ->
-  terl_boolean:op(Op, undefined);
-
-dispatch({_, 'String'} = T, Op, {union_type, Ts}) ->
-  [dispatch(T, Op, T1) || T1 <- Ts];
-dispatch({_, 'String'}, Op, {_, T}) ->
-  terl_string:op(Op, T);
-dispatch({_, 'String'}, Op, undefined) ->
-  terl_string:op(Op, undefined);
-
 dispatch({list_type, T1}, Op, {union_type, Ts}) ->
   [terl_list:op(Op, T1, T2) || T2 <- Ts];
 dispatch({list_type, T1}, Op, T2) ->
   terl_list:op(Op, T1, T2);
 
-dispatch(T, Op, T2) ->
-  io:format("No dispatcher defined for Operator "
-            ++ "~p and Type ~p and ~p~n", [Op, T, T2]),
-  undefined.
+dispatch({union_type, Ts}, Op, T) ->
+  dispatch(T, Op, {union_type, Ts});
+
+dispatch(T1, Op, T2) ->
+  apply(module_of(T1), op, [Op, T2]).
 
 %% Unary operator dispatcher to respective types
 
-dispatch(Op, {_, 'Boolean'}) ->
-  terl_boolean:op(Op);
-dispatch(Op, {_, 'Float'}) ->
-  terl_float:op(Op);
-dispatch(Op, {_, 'Integer'}) ->
-  terl_integer:op(Op);
-dispatch(Op, {_, 'String'}) ->
-  terl_string:op(Op);
-dispatch(Op, {_, list_type}) ->
-  terl_list:op(Op);
 dispatch(Op, {union_type, Ts}) ->
   [dispatch(Op, T) || T <- Ts];
+
 dispatch(Op, T) ->
-  io:format("No dispatcher defined for Operator ~p and Type ~p~n", [Op, T]),
+  apply(module_of(T), op, [Op]).
+
+
+op(Op) ->
+  io:format("No dispatcher defined for Operator ~p~n", [Op]),
   undefined.
 
-lcs({_, 'Integer'}, T) ->
-  terl_integer:lcs(T);
-lcs({_, 'Float'}, T) ->
-  terl_float:lcs(T);
-lcs({_, 'Boolean'}, T) ->
-  terl_boolean:lcs(T);
-lcs({_, 'String'}, T) ->
-  terl_string:lcs(T);
-lcs({terl_type, 'Any'} = T, _) ->
-  T;
-lcs(_, {terl_type, 'Any'} = T) ->
-  T;
+op(Op, T2) ->
+  io:format("No dispatcher defined for Operator "
+            ++ "~p and Type ~p~n", [Op, T2]),
+  undefined.
+
+lcs(T) ->
+  io:format("No lcs defined to ~p~n", [T]),
+  ?ANY.
+
 lcs({list_type, T1}, T2) ->
   terl_list:lcs(T1, T2);
 lcs(undefined, _) ->
@@ -114,8 +101,9 @@ lcs({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
   end;
 lcs({fun_type, _, _}, _) ->
   {terl_type, 'Any'};
-lcs(_, _) ->
-  tag_built_in('Any').
+lcs(T1, T2) ->
+  M = module_of(T1),
+  apply(M, lcs, [T2]).
 
 type_tag(Type) ->
   case built_in(Type) of
