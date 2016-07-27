@@ -29,5 +29,6 @@ op(_)                             -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lcs(T, T)                         -> {list_type, T};
-lcs(T1, T2)                       -> {list_type, type_internal:lcs(T1, T2)}.
+lcs(T, {list_type, T})            -> {list_type, T};
+lcs(T1, {list_type, T2})          -> {list_type, type_internal:lcs(T1, T2)};
+lcs(_, _)                         -> ?ANY.

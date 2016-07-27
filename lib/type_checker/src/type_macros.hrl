@@ -5,3 +5,13 @@
 -define(ANY, {terl_type, 'Any'}).
 -define(INVALID, type_internal:invalid_operator()).
 -define(UNDEFINED, undefined).
+
+
+
+-define(ANY_MOD,     terl_any).
+-define(INTEGER_MOD, terl_integer).
+-define(FLOAT_MOD,   terl_float).
+-define(BOOLEAN_MOD, terl_boolean).
+-define(STRING_MOD,  terl_string).
+-define(LIST_MOD,    terl_list).
+-define(UNION_MOD,   terl_union).

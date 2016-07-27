@@ -7,23 +7,26 @@
 
 -include("type_macros.hrl").
 
-op('/', 'Integer')     -> ?INTEGER;
-op('+', 'Integer')     -> ?INTEGER;
-op('-', 'Integer')     -> ?INTEGER;
-op('*', 'Integer')     -> ?INTEGER;
+op('/', ?INTEGER)     -> ?INTEGER;
+op('+', ?INTEGER)     -> ?INTEGER;
+op('-', ?INTEGER)     -> ?INTEGER;
+op('*', ?INTEGER)     -> ?INTEGER;
 
-op('band', 'Integer')  -> ?INTEGER;
-op('bor', 'Integer')   -> ?INTEGER;
-op('bxor', 'Integer')  -> ?INTEGER;
-op('bsl', 'Integer')   -> ?INTEGER;
-op('bsr', 'Integer')   -> ?INTEGER;
-op('bnot', 'Integer')  -> ?INTEGER;
+op('band', ?INTEGER)  -> ?INTEGER;
+op('bor', ?INTEGER)   -> ?INTEGER;
+op('bxor', ?INTEGER)  -> ?INTEGER;
+op('bsl', ?INTEGER)   -> ?INTEGER;
+op('bsr', ?INTEGER)   -> ?INTEGER;
+op('bnot', ?INTEGER)  -> ?INTEGER;
 
-op('div', 'Integer')   -> ?INTEGER;
-op('div', 'Float')     -> ?INVALID;
+op('div', ?INTEGER)   -> ?INTEGER;
+op('div', ?FLOAT)     -> ?INVALID;
 
-op('rem', 'Integer')   -> ?INTEGER;
-op('rem', 'Float')     -> ?INVALID;
+op('rem', ?INTEGER)   -> ?INTEGER;
+op('rem', ?FLOAT)     -> ?INVALID;
+
+op(Op, {union_type, Ts}) ->
+  [op(Op, T) || T <- Ts];
 
 op('/', undefined)   -> ?INTEGER;
 op('+', undefined)   -> ?INTEGER;
@@ -43,10 +46,10 @@ op('rem', undefined)  -> ?INTEGER;
 op(_, undefined)     -> ?UNDEFINED;
 
 
-op('+', 'Float')       -> ?FLOAT;
-op('-', 'Float')       -> ?FLOAT;
-op('/', 'Float')       -> ?FLOAT;
-op('*', 'Float')       -> ?FLOAT;
+op('+', ?FLOAT)       -> ?FLOAT;
+op('-', ?FLOAT)       -> ?FLOAT;
+op('/', ?FLOAT)       -> ?FLOAT;
+op('*', ?FLOAT)       -> ?FLOAT;
 
 op('==', _)          -> ?BOOLEAN;
 op('=:=', _)         -> ?BOOLEAN;
@@ -54,17 +57,17 @@ op('=:=', _)         -> ?BOOLEAN;
 op('/=', _)          -> ?BOOLEAN;
 op('=/=', _)         -> ?BOOLEAN;
 
-op('>=', 'Integer')    -> ?BOOLEAN;
-op('>=', 'Float')      -> ?BOOLEAN;
+op('>=', ?INTEGER)    -> ?BOOLEAN;
+op('>=', ?FLOAT)      -> ?BOOLEAN;
 
-op('=<', 'Integer')    -> ?BOOLEAN;
-op('=<', 'Float')      -> ?BOOLEAN;
+op('=<', ?INTEGER)    -> ?BOOLEAN;
+op('=<', ?FLOAT)      -> ?BOOLEAN;
 
-op('<', 'Integer')     -> ?BOOLEAN;
-op('<', 'Float')       -> ?BOOLEAN;
+op('<', ?INTEGER)     -> ?BOOLEAN;
+op('<', ?FLOAT)       -> ?BOOLEAN;
 
-op('>', 'Integer')     -> ?BOOLEAN;
-op('>', 'Float')       -> ?BOOLEAN;
+op('>', ?INTEGER)     -> ?BOOLEAN;
+op('>', ?FLOAT)       -> ?BOOLEAN;
 
 op(_, _)             -> ?INVALID.
 

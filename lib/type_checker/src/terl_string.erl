@@ -7,8 +7,11 @@
 
 -include("type_macros.hrl").
 
-op('++', 'String') -> ?STRING;
-op('--', 'String') -> ?STRING;
+op('++', ?STRING) -> ?STRING;
+op('--', ?STRING) -> ?STRING;
+
+op(Op, {union_type, Ts}) ->
+  [op(Op, T) || T <- Ts];
 
 op('++', undefined) -> ?STRING;
 op('--', undefined) -> ?STRING;

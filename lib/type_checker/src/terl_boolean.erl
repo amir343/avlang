@@ -7,12 +7,15 @@
 
 -include("type_macros.hrl").
 
-op('and', 'Boolean')     -> ?BOOLEAN;
-op('or', 'Boolean')      -> ?BOOLEAN;
-op('xor', 'Boolean')     -> ?BOOLEAN;
+op('and', ?BOOLEAN)     -> ?BOOLEAN;
+op('or', ?BOOLEAN)      -> ?BOOLEAN;
+op('xor', ?BOOLEAN)     -> ?BOOLEAN;
 
-op('andalso', 'Boolean') -> ?BOOLEAN;
-op('orelse', 'Boolean')  -> ?BOOLEAN;
+op('andalso', ?BOOLEAN) -> ?BOOLEAN;
+op('orelse', ?BOOLEAN)  -> ?BOOLEAN;
+
+op(Op, {union_type, Ts}) ->
+  [op(Op, T) || T <- Ts];
 
 op('and', undefined)   -> ?BOOLEAN;
 op('or', undefined)    -> ?BOOLEAN;

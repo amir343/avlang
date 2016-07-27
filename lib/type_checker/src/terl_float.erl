@@ -9,15 +9,18 @@
 
 op(_, undefined)  -> ?UNDEFINED;
 
-op('/', 'Float')    -> ?FLOAT;
-op('+', 'Float')    -> ?FLOAT;
-op('-', 'Float')    -> ?FLOAT;
-op('*', 'Float')    -> ?FLOAT;
+op('/', ?FLOAT)    -> ?FLOAT;
+op('+', ?FLOAT)    -> ?FLOAT;
+op('-', ?FLOAT)    -> ?FLOAT;
+op('*', ?FLOAT)    -> ?FLOAT;
 
-op('+', 'Integer')  -> ?FLOAT;
-op('*', 'Integer')  -> ?FLOAT;
-op('/', 'Integer')  -> ?FLOAT;
-op('-', 'Integer')  -> ?FLOAT;
+op('+', ?INTEGER)  -> ?FLOAT;
+op('*', ?INTEGER)  -> ?FLOAT;
+op('/', ?INTEGER)  -> ?FLOAT;
+op('-', ?INTEGER)  -> ?FLOAT;
+
+op(Op, {union_type, Ts}) ->
+  [op(Op, T) || T <- Ts];
 
 op('div', _)      -> ?INVALID;
 op('rem', _)      -> ?INVALID;
@@ -28,17 +31,17 @@ op('=:=', _)      -> ?BOOLEAN;
 op('/=', _)       -> ?BOOLEAN;
 op('=/=', _)      -> ?BOOLEAN;
 
-op('>=', 'Integer') -> ?BOOLEAN;
-op('>=', 'Float')   -> ?BOOLEAN;
+op('>=', ?INTEGER) -> ?BOOLEAN;
+op('>=', ?FLOAT)   -> ?BOOLEAN;
 
-op('=<', 'Integer') -> ?BOOLEAN;
-op('=<', 'Float')   -> ?BOOLEAN;
+op('=<', ?INTEGER) -> ?BOOLEAN;
+op('=<', ?FLOAT)   -> ?BOOLEAN;
 
-op('<', 'Integer')  -> ?BOOLEAN;
-op('<', 'Float')    -> ?BOOLEAN;
+op('<', ?INTEGER)  -> ?BOOLEAN;
+op('<', ?FLOAT)    -> ?BOOLEAN;
 
-op('>', 'Integer')  -> ?BOOLEAN;
-op('>', 'Float')    -> ?BOOLEAN;
+op('>', ?INTEGER)  -> ?BOOLEAN;
+op('>', ?FLOAT)    -> ?BOOLEAN;
 
 op(_, _)          -> ?INVALID.
 

@@ -46,6 +46,8 @@ MODULES =  \
 	terl_integer \
 	terl_list \
 	terl_string \
+	terl_any \
+	terl_union \
 	type_check \
 	type_internal
 
@@ -124,3 +126,6 @@ $(EBIN)/terl_integer.beam: type_macros.hrl
 $(EBIN)/terl_float.beam: type_macros.hrl
 $(EBIN)/terl_list.beam: type_macros.hrl
 $(EBIN)/terl_string.beam: type_macros.hrl
+$(EBIN)/terl_any.beam: type_macros.hrl
+$(EBIN)/type_internal.beam: type_macros.hrl
+$(EBIN)/terl_union.beam: type_macros.hrl
