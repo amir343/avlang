@@ -3,16 +3,22 @@
 -export([ built_in/1
         , dispatch/2
         , dispatch/3
+        , extract_generic_types/1
+        , extract_type_terminals/2
+        , extract_user_defined_types/1
         , invalid_operator/0
         , lcs/1
         , lcs/2
         , op/1
         , op/2
+        , reduce/2
         , reduce/3
         , sub_type_of/2
         , tag_built_in/1
         , type_equivalent/2
+        , type_map/2
         , type_tag/1
+        , type_terminals/1
         ]).
 
 -include("type_macros.hrl").
@@ -196,6 +202,9 @@ sub_type_of(T1, T2) ->
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
 %% we need to reduce to all posssible terminals in LHS.
+reduce(LHS, T) ->
+  reduce(LHS, T, []).
+
 reduce({integer, _, _}, _, Rs) ->
   Rs;
 reduce({atom, _, _}, _, Rs) ->
@@ -227,3 +236,83 @@ ulist({list_type, T}) ->
   T;
 ulist(_) ->
   undefined.
+
+
+
+type_map({fun_sig, L, N, Ts}, FMap) ->
+  {fun_sig, L, N, [type_map(T, FMap)|| T <- Ts]};
+type_map({fun_remote_sig, L, M, N, Ts}, FMap) ->
+  {fun_rempte_sig, L, M, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_alias, L, T}, FMap) ->
+  {type_alias, L, type_map(T, FMap)};
+type_map({fun_type, Is, O}, FMap) ->
+  {fun_type, [type_map(I, FMap) || I <- Is], type_map(O, FMap)};
+type_map({union_type, Ts}, FMap) ->
+  {union_type, [type_map(T, FMap) || T <- Ts]};
+type_map({list_type, T}, FMap) ->
+  {list_type, type_map(T, FMap)};
+type_map({tuple_type, Ts}, FMap) ->
+  {tuple_type, [type_map(T, FMap) || T <- Ts]};
+type_map({record_type, N, Ts}, FMap) ->
+  {record_type, N, [type_map(T, FMap) || T <- Ts]};
+type_map({type_instance, N, Ts}, FMap) ->
+  {type_instance, N, [type_map(T, FMap) || T <- Ts]};
+type_map(T, FMap) ->
+  FMap(T).
+
+
+extract_user_defined_types(Ts) when is_list(Ts) ->
+  lists:flatten([extract_user_defined_types(T) || T <- Ts]);
+extract_user_defined_types(T) ->
+  extract_type_terminals(terl_user_defined, T).
+
+extract_generic_types(T) ->
+  extract_type_terminals(terl_generic_type, T).
+
+%% Tags can be one of the following:
+%% - terl_type
+%% - terl_generic_type
+%% - terl_type_ref
+%% - terl_user_defined
+extract_type_terminals(Tag, T) ->
+  lists:foldl(fun(Tp, Acc) ->
+                  case Tp of
+                    {Tag, Type} ->
+                      [Type | Acc];
+                    Tag ->
+                      [Tag | Acc];
+                    _ -> Acc
+                  end
+              end, [], type_terminals(T)).
+
+type_terminals({fun_type, Is, O}) ->
+  lists:flatten([type_terminals(I) || I <- Is])
+    ++ type_terminals(O);
+type_terminals({union_type, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({list_type, T}) ->
+  type_terminals(T);
+type_terminals({tuple_type, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({record_type, _, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({type_instance, _, Ts}) ->
+  lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({terl_type, _} = T) ->
+  [T];
+type_terminals({terl_generic_type, _} = T) ->
+  [T];
+type_terminals({terl_type_ref, _, _} = T) ->
+  [T];
+type_terminals({terl_user_defined, _} = T) ->
+  [T];
+type_terminals({terl_atom_type, _} = T) ->
+  [T];
+type_terminals({untyped_fun, nil, nil} = T) ->
+  [T];
+type_terminals(undefined) ->
+  [undefined];
+type_terminals(W) ->
+  throw({fatal_error, not_recognized, W}).
+
+
