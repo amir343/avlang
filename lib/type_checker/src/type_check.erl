@@ -681,7 +681,7 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
-  VarTypes = type_internal:reduce(LHS, Inferred, []),
+  VarTypes = type_internal:reduce(LHS, Inferred),
   Scopes2 = update_local(Scopes1, VarTypes),
   {Inferred, Scopes2};
 
