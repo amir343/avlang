@@ -11,8 +11,8 @@
         , lcs/2
         , op/1
         , op/2
-        , reduce/2
-        , reduce/3
+        , eliminate/2
+        , eliminate/3
         , sub_type_of/2
         , tag_built_in/1
         , type_equivalent/2
@@ -201,35 +201,35 @@ sub_type_of(T1, T2) ->
 
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
-%% we need to reduce to all posssible terminals in LHS.
-reduce(LHS, T) ->
-  reduce(LHS, T, []).
+%% we need to eliminate to all posssible terminals in LHS.
+eliminate(LHS, T) ->
+  eliminate(LHS, T, []).
 
-reduce({integer, _, _}, _, Rs) ->
+eliminate({integer, _, _}, _, Rs) ->
   Rs;
-reduce({atom, _, _}, _, Rs) ->
+eliminate({atom, _, _}, _, Rs) ->
   Rs;
-reduce({var, _, '_'}, _, Rs) ->
+eliminate({var, _, '_'}, _, Rs) ->
   Rs;
-reduce({var, _, _} = V, T, Rs) ->
+eliminate({var, _, _} = V, T, Rs) ->
   [{V, T} | Rs];
-reduce({cons, _, A, B}, T, Rs0) ->
-  Rs1 = reduce(A, ulist(T), Rs0),
-  reduce(B, T, Rs1);
-reduce({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
+eliminate({cons, _, A, B}, T, Rs0) ->
+  Rs1 = eliminate(A, ulist(T), Rs0),
+  eliminate(B, T, Rs1);
+eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
   case length(Es) =/= length(Ts) of
     true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
     false ->
       lists:foldl(fun({K, V}, Acc) ->
-                      reduce(K, V, Acc)
+                      eliminate(K, V, Acc)
                   end, Rs0, lists:zip(Es, Ts))
   end;
-reduce({tuple, _L, Es}, _, Rs0) ->
-  lists:flatten([reduce(E, undefined, []) || E <- Es]) ++ Rs0;
-reduce({op, _, '++', {string, _, _}, {var, _, _} = V},
+eliminate({tuple, _L, Es}, _, Rs0) ->
+  lists:flatten([eliminate(E, undefined, []) || E <- Es]) ++ Rs0;
+eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
        {terl_type, string} = T, Rs) ->
-  reduce(V, T, Rs);
-reduce(_, _, W) ->
+  eliminate(V, T, Rs);
+eliminate(_, _, W) ->
   W.
 
 ulist({list_type, T}) ->
