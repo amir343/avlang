@@ -655,7 +655,7 @@ type_check_clause0(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
 type_check_clause0({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
   VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
-                             type_internal:reduce(LHS, RHS, Acc)
+                             type_internal:eliminate(LHS, RHS, Acc)
                          end, [], lists:zip(Args, Is)),
   %% TODO: validity of declared types for args
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
@@ -681,7 +681,7 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
 
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
-  VarTypes = type_internal:reduce(LHS, Inferred),
+  VarTypes = type_internal:eliminate(LHS, Inferred),
   Scopes2 = update_local(Scopes1, VarTypes),
   {Inferred, Scopes2};
 
@@ -790,13 +790,13 @@ type_of({call, L, NN, Args}, Scopes0) ->
   case length(Matches) of
     0 ->
       %% In case of no exact match we try to partially match the
-      %% typed arguments against FTypes by using the reduce method.
+      %% typed arguments against FTypes by using the eliminate method.
       {fun_type, Is, O} = find_the_best_match(TypedArgs, FTypes),
       {TypedArgs1, VartTypes} =
         lists:foldl(fun({A, T1, T2}, {Ts, VTs}) ->
                         case T1 of
                           undefined ->
-                            VarTypes = type_internal:reduce(A, T2),
+                            VarTypes = type_internal:eliminate(A, T2),
                             case VarTypes of
                               [] -> {Ts ++ [T1], VTs};
                               _  -> {Ts ++ [T2], VTs ++ VarTypes}
@@ -806,7 +806,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
                         end
                     end, {[], []}, lists:zip3(Args, TypedArgs, Is)),
       %% If the new TypedArgs is an exact match of callee then we can
-      %% infer that we could reduce types successfully, otherwise the
+      %% infer that we could eliminate types successfully, otherwise the
       %% old approach of generating typer errors for arguments is followed.
       case find_exact_match(TypedArgs1, {fun_type, Is, O}) of
         {true, _, _} ->
