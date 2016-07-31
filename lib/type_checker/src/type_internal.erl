@@ -172,6 +172,15 @@ type_equivalent({terl_type, 'Any'}, _) ->
   true;
 type_equivalent(_, {terl_type, 'Any'}) ->
   true;
+type_equivalent([_, _] = Ts1, [_, _] = Ts2) ->
+  (length(Ts1) =:= length(Ts2)) andalso
+    lists:all(fun(E) -> E =:= true
+              end,
+              [lists:any(
+                 fun(E1) ->
+                     E1 =:= true
+                 end, [type_equivalent(T, TT) || TT <- Ts2])
+               || T <- Ts1]);
 type_equivalent(T, T) ->
   true;
 type_equivalent(_, _) ->

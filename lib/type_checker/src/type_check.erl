@@ -393,6 +393,8 @@ fun_arity([{fun_type, I, _} | _]) ->
         , type                = nil
           %% Pointer to outer local scope name
         , outer_scope         = nil
+          %% last fun type signature for fun expression
+        , last_ftype          = undefined
         , last_nr_undefined   = infinty}).
 
 -record(scopes,
@@ -412,6 +414,8 @@ type_check0(Forms, FileName, State) ->
     = type_check_loop(1, Forms, Scopes0, -1),
 
   io:format(">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
+  io:format("Number of errors: ~p~n", [length(Errs0)]),
+  io:format("Errors in raw: ~p~n", [Errs0]),
 
   %% Sort based on line numbers
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
@@ -516,6 +520,17 @@ match_clauses_with_sig(N, A, Cls, Scopes) ->
       {lists:map(fun(E) -> {E, undefined} end, Cls), Scopes};
     FSs ->
       match_clauses_with_sig0(Cls, FSs, [], Scopes)
+  end.
+
+match_clauses_with_ftype(Cls, L, Scopes=#scopes{local = LS}) ->
+  Scopes1 = Scopes#scopes{local = LS#local_scope{last_ftype = undefined}},
+  case LS#local_scope.last_ftype of
+    undefined ->
+      {lists:map(fun(E) -> {E, undefined} end, Cls), Scopes1};
+    FSs0 when is_list(FSs0) ->
+      match_clauses_with_sig0(Cls, {fun_sig, L, noname, FSs0}, [], Scopes1);
+    FSs1 ->
+      match_clauses_with_sig0(Cls, {fun_sig, L, noname, [FSs1]}, [], Scopes1)
   end.
 
 %% Returns [{clause, fun_Type}]
@@ -687,12 +702,26 @@ type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
 
 %% When there is type declaration
 type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
-  {Inferred, Scopes1} = type_of(RHS, Scopes0),
+  Scopes1 = check_for_fun_type(Type, Scopes0),
+  {Inferred, Scopes2} = type_of(RHS, Scopes1),
   assert_type_equality(Var, L, Type, Inferred),
-  {_, Scopes2} = update_local(Scopes1, V, Inferred),
-  {Inferred, Scopes2};
+  {_, Scopes3} = update_local(Scopes2, V, Inferred),
+  {Inferred, Scopes3};
+
 type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
+
+check_for_fun_type(Type, Scopes=#scopes{local = L}) ->
+  case Type of
+    FTs when is_list(FTs) ->
+      Scopes#scopes{local = L#local_scope{last_ftype = FTs}};
+    {fun_type, _, _} ->
+      Scopes#scopes{local = L#local_scope{last_ftype = Type}};
+    {untyped_fun, _, _} ->
+      Scopes#scopes{local = L#local_scope{last_ftype = Type}};
+    _ ->
+      Scopes#scopes{local = L#local_scope{last_ftype = undefined}}
+  end.
 
 %% Insert argument types into local scope
 insert_args({var, _, '_'}, _, S) ->
@@ -753,8 +782,7 @@ type_of({op, L, Op, RHS}, Scopes0) ->
   assert_operator_validity(Res, Op, TR, L, Scopes1);
 
 type_of({var, _L, Var}, #scopes{local = LS} = S) ->
-  T = recursive_lookup(Var, S, LS),
-  {T, S};
+  {recursive_lookup(Var, S, LS), S};
 
 type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
@@ -769,13 +797,32 @@ type_of({tuple, L, Es}, Scopes0) ->
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
 
+
+type_of({'fun', L, {clauses, [{clause, _, Args, _, _} | _] = Cls}}, Scopes0) ->
+  {ClauseSig, Scopes1} = match_clauses_with_ftype(Cls, L, Scopes0),
+  N = list_to_atom("anonymous_fun_at_" ++ integer_to_list(L)),
+  A = length(Args),
+  {_, InferredTypeFSig, Scopes2} =
+    lists:foldl(fun({Cl, Sig}, {Ind, Ts, S0}) ->
+                    L2 = element(2, Cl),
+                    LsName = {N, L2, Ind},
+                    S1 = nest_ls(LsName, S0),
+                    {T, S2} = type_check_clause(Sig, Cl, S1),
+                    S3 = sync_ls(LsName, S2),
+                    {Ind + 1, [{L2, T, Sig} | Ts], S3}
+                end, {0, [], Scopes1}, ClauseSig),
+
+  {FTypes, Scopes3} = infer_function_type({N, A}, InferredTypeFSig, Scopes2),
+  {FTypes, validate_fun_type({N, A, L}, FTypes, Scopes3)};
+
 %% local calls
 type_of({call, L, NN, Args}, Scopes0) ->
   Arity = length(Args),
   {N0, Scopes1} = type_of(NN, Scopes0),
   N = case N0 of
         undefined -> undefined;
-        N1 -> element(2, N1)
+        {_, N1} -> N1;
+        _ -> element(3, NN)
       end,
   FTypes = find_fun_type(N, Arity, Scopes1),
   Scopes2 = assert_found_fun_type(FTypes, L, NN, Arity, Scopes1),
@@ -807,7 +854,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
                     end, {[], []}, lists:zip3(Args, TypedArgs, Is)),
       %% If the new TypedArgs is an exact match of callee then we can
       %% infer that we could eliminate types successfully, otherwise the
-      %% old approach of generating typer errors for arguments is followed.
+      %% old approach of generating type errors for arguments is followed.
       case find_exact_match(TypedArgs1, {fun_type, Is, O}) of
         {true, _, _} ->
           {O, update_local(Scopes3, VartTypes)};
@@ -905,7 +952,6 @@ recursive_lookup(Var, S=#scopes{locals = LS},
       end
   end.
 
-
 unwrap_list(_, {list_type, T}, _) ->
   T;
 unwrap_list(_, undefined, _) ->
@@ -961,7 +1007,8 @@ assert_operator_validity(Res, Op, TL, TR, L, Scopes=#scopes{errors = Errs}) ->
     InvalidOp ->
       {undefined,
        Scopes#scopes{errors =
-                       Errs ++ [{error, L, {invalid_operator, Op, TL, TR}}]}};
+                       Errs ++ [{L, ?TYPE_MSG,
+                                 {invalid_operator, Op, TL, TR}}]}};
     R ->
       {R, Scopes}
   end.
@@ -972,7 +1019,8 @@ assert_operator_validity(Res, Op, TR, L, Scopes=#scopes{errors = Errs}) ->
     InvalidOp ->
       {undefined,
        Scopes#scopes{errors =
-                       Errs ++ [{error, L, {invalid_operator, Op, TR}}]}};
+                       Errs ++ [{L, ?TYPE_MSG,
+                                 {invalid_operator, Op, TR}}]}};
     R ->
       {R, Scopes}
   end.
@@ -1051,9 +1099,12 @@ find_fun_type_in_global(N, Ar, #scopes{global = GS}) ->
 
 find_fun_type_in_local(N, Ar, #scopes{local = LS}) ->
   case dict:find(N, LS#local_scope.vars) of
-    {ok, FList} ->
-      lists:flatten(
-        lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
+    {ok, #meta_var{type = FList}} ->
+      case lists:all(fun(E) -> E =:= true end,
+                     [fun_arity(Fs) =:= Ar || Fs <- FList]) of
+        true  -> FList;
+        false -> []
+      end;
     error -> []
   end.
 
@@ -1112,9 +1163,26 @@ start_ls(Name, S=#scopes{}) ->
   L = find_ls(Name, S),
   S#scopes{local = L}.
 
+%% Same as `start_ls` except it nests the local scope
+nest_ls(Name, S=#scopes{local = OuterScope, locals = LS}) ->
+  OuterScopeName = OuterScope#local_scope.name,
+  LS1 = dict:store(OuterScopeName, OuterScope, LS),
+  case dict:find(Name, LS) of
+    {ok, L} ->
+      S#scopes{local = L, locals = LS1};
+    _ ->
+      S#scopes{local = #local_scope{name = Name, outer_scope = OuterScopeName}
+              , locals = LS1}
+  end.
+
 %% Save current local scope for later uses
 sync_ls(Name, S=#scopes{local = L, locals = LS}) ->
-  S#scopes{locals = dict:store(Name, L, LS)}.
+  case L#local_scope.outer_scope of
+    nil ->
+      S#scopes{locals = dict:store(Name, L, LS)};
+    OS ->
+      S#scopes{locals = dict:store(Name, L, LS), local = dict:fetch(OS, LS)}
+  end.
 
 %% Cache the number of undefined type in current local scope
 %% as long as it is zero.
