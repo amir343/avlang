@@ -200,6 +200,10 @@ pp_type({union_type, Ts}) ->
 pp_type({terl_atom_type, T}) ->
   io_lib:format("~s", [T]);
 
+pp_type(T) when is_list(T) ->
+  Ts = [pp_type(TT) || TT <- T],
+  io_lib:format("~s", [list_to_string_sep(Ts, "; ")]);
+
 pp_type(undefined) ->
   "?";
 

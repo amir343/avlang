@@ -172,6 +172,15 @@ type_equivalent({terl_type, 'Any'}, _) ->
   true;
 type_equivalent(_, {terl_type, 'Any'}) ->
   true;
+type_equivalent([_, _] = Ts1, [_, _] = Ts2) ->
+  (length(Ts1) =:= length(Ts2)) andalso
+    lists:all(fun(E) -> E =:= true
+              end,
+              [lists:any(
+                 fun(E1) ->
+                     E1 =:= true
+                 end, [type_equivalent(T, TT) || TT <- Ts2])
+               || T <- Ts1]);
 type_equivalent(T, T) ->
   true;
 type_equivalent(_, _) ->
@@ -310,6 +319,8 @@ type_terminals({terl_atom_type, _} = T) ->
   [T];
 type_terminals({untyped_fun, nil, nil} = T) ->
   [T];
+type_terminals(T) when is_list(T) ->
+  lists:flatten([type_terminals(TT) || TT <- T]);
 type_terminals(undefined) ->
   [undefined];
 type_terminals(W) ->
