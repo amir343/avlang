@@ -39,6 +39,7 @@
                , type_used_loc    = dict:new()
                  %% {Key, [Line]}
                , errors           = []
+               , compiler_opts    = []
                , erlang_types     = dict:new()
          }).
 
@@ -49,9 +50,8 @@ module(Forms, FileName, Opts) ->
   run_passes(standard_passes(),
              Forms,
              FileName,
-             Opts,
              [],
-             #state{erlang_types = ErlangTypes}).
+             #state{erlang_types = ErlangTypes, compiler_opts = Opts}).
 
 bootstrap_types() ->
   EbinDir = code:lib_dir(type_checker, priv),
@@ -97,11 +97,11 @@ substitute_type_alias(T, Aliases) ->
            end
        end).
 
-run_passes([P | Ps], Fs, Fn, Opts, Ws0, State0) ->
+run_passes([P | Ps], Fs, Fn, Ws0, State0) ->
   try
-    case P(Fs, Fn, Opts, State0) of
+    case P(Fs, Fn, State0) of
       {ok, Ws, State1} ->
-        run_passes(Ps, Fs, Fn, Opts, Ws0 ++ Ws, State1);
+        run_passes(Ps, Fs, Fn, Ws0 ++ Ws, State1);
       {error, _, _} = E ->
         E
     end
@@ -113,16 +113,16 @@ run_passes([P | Ps], Fs, Fn, Opts, Ws0, State0) ->
       io:format("Something bad happened, type system apologizes: ~p:~p~n"
                , [EE, Err])
   end;
-run_passes([], _, _, _, Ws, _) ->
+run_passes([], _, _, Ws, _) ->
   {ok, Ws}.
 
 standard_passes() ->
-  [ fun type_lint/4
-  , fun type_check/4
+  [ fun type_lint/3
+  , fun type_check/3
   ].
 
-type_lint(Forms, FileName, _Opts, State) ->
-  io:format("~p~n", [Forms]),
+type_lint(Forms, FileName, State) ->
+  debug_log(State, "~p~n", [Forms]),
   St = collect_types(Forms, State),
   check_consistency_type_cons(St, FileName),
   check_consistency_fun_sigs(St, FileName),
@@ -142,10 +142,13 @@ type_lint(Forms, FileName, _Opts, State) ->
     _ -> {error, [{FileName, Errs}], []}
   end.
 
-type_check(Forms, FileName, _Opts, State) ->
+type_check(Forms, FileName, State) ->
   type_check0(Forms, FileName, State).
 
 %% Collect forms of interest into state record
+collect_types([{attribute, _, compile, Opts} | Forms], St0) ->
+  St1 = insert_compiler_options(St0, Opts),
+  collect_types(Forms, St1);
 collect_types([{fun_sig, L, _, Ts} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(Ts, L, St0),
   collect_types(Forms, add_fun_sigs(Form, St1));
@@ -169,6 +172,15 @@ collect_types([_ | Forms], St) ->
   collect_types(Forms, St);
 collect_types([], St) ->
   St.
+
+insert_compiler_options(St=#state{compiler_opts = Opts}, Options) ->
+  Opts1 = lists:foldl(fun(O, Acc) ->
+                          case lists:member(O, Opts) of
+                            true  -> Acc;
+                            false -> [O | Acc]
+                          end
+                      end, [], Options),
+  St#state{compiler_opts = Opts1 ++ Opts}.
 
 %% Extract user defined types given at line L and associate each one with
 %% line L in the returned state.type_used_loc.
@@ -411,12 +423,12 @@ fun_arity([{fun_type, I, _} | _]) ->
 type_check0(Forms, FileName, State) ->
   Scopes0 = #scopes{state = State},
 
-  #scopes{errors = Errs0}
-    = type_check_loop(1, Forms, Scopes0, -1),
+  S = type_check_loop(1, Forms, Scopes0, -1),
+  #scopes{errors = Errs0} = S,
 
-  io:format(">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
-  io:format("Number of errors: ~p~n", [length(Errs0)]),
-  io:format("Errors in raw: ~p~n", [Errs0]),
+  debug_log(S, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
+  debug_log(S, "Number of errors: ~p~n", [length(Errs0)]),
+  debug_log(S, "Errors in raw: ~p~n", [Errs0]),
 
   %% Sort based on line numbers
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
@@ -431,19 +443,21 @@ type_check0(Forms, FileName, State) ->
 type_check_loop(10, _, S, _) ->
   S;
 type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
-  io:format(">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
+  debug_log(Scopes0,
+            ">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
 
   Scopes1 = type_check1(Forms, Scopes0),
   %% Only for sake of debugging
-  debug_log("~~~~~~~~~~~~~~~~~~~~ Global scope ~~~~~~~~~~~~~~~~~~~~ ~n", []),
+  debug_log(Scopes0,
+            "\t~~~~~~~~~~~~~~~~~~~~ Global scope ~~~~~~~~~~~~~~~~~~~~ ~n", []),
   lists:foreach(fun({N, FTypes}) ->
                     TS = [FT1 || FT <- FTypes, FT1 <- FT],
-                    [debug_log("~p/~p :: ~s~n",
+                    [debug_log(Scopes0, "\t~p/~p :: ~s~n",
                                [N, fun_arity(T), ?TYPE_MSG:pp_type(T)])
                      || T <- TS]
                 end, dict:to_list(Scopes1#scopes.global)),
   Undefs = count_undefined(Scopes1),
-  io:format("Number of undefined: ~p~n", [Undefs]),
+  debug_log(Scopes0, "Number of undefined types: ~p~n", [Undefs]),
   Scopes2 = Scopes1#scopes{first_pass = false, errors = []},
   case Undefs of
     0 -> Scopes1;    %% All types could be inferred
@@ -636,7 +650,8 @@ validate_fun_type0(NAL, FType, S=#scopes{}) ->
 type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
   case FP of
     true ->
-      debug_log("~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n", [LS#local_scope.name]),
+      debug_log(S,
+                "\t~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n", [LS#local_scope.name]),
       {Res, S1} = type_check_clause0(FSig, Cls, S),
       S2 = update_undefined(S1),
       {Res, S2};
@@ -646,7 +661,7 @@ type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
         0 ->
           {LS#local_scope.type, S};
         _ ->
-          debug_log("~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n",
+          debug_log(S, "\t~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n",
                     [LS#local_scope.name]),
           {Res, S1} = type_check_clause0(FSig, Cls, S),
           S2 = update_undefined(S1),
@@ -737,7 +752,7 @@ insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
 
 insert_args0(Var, L, Type, S) ->
   LS = (S#scopes.local),
-  debug_log("~p :: ~s~n", [Var, ?TYPE_MSG:pp_type(Type)]),
+  debug_log(S, "\t~p :: ~s~n", [Var, ?TYPE_MSG:pp_type(Type)]),
   MetaVar = #meta_var{type = Type, line = L},
   S#scopes{local =
              LS#local_scope{vars =
@@ -876,7 +891,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
   end;
 
 type_of(T, Scopes) ->
-  io:format("type_of ~p not implemented~n", [T]),
+  debug_log(Scopes, "type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
 
 assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
@@ -1051,14 +1066,14 @@ update_local(S=#scopes{}, {var, L, V}, Type) ->
                                              , LS#local_scope.vars)}},
   case Type of
     undefined ->
-      debug_log("~p :: ?~n", [V]),
+      debug_log(S, "\t~p :: ?~n", [V]),
       {Type,
        S1#scopes{errors =
                   S#scopes.errors ++
                   [{L, ?TYPE_MSG, {can_not_infer_type, V}}
                    || type_defined_in_local(V, S)]}};
     _ ->
-      debug_log("~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
+      debug_log(S, "\t~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
       {Type, S1}
   end;
 
@@ -1075,7 +1090,7 @@ update_local(S=#scopes{}, String, Type) ->
                                              , LS#local_scope.vars)}},
   case Type of
     undefined ->
-      debug_log("Expression @ ~p :: ?~n", [L]),
+      debug_log(S, "\tExpression @ ~p :: ?~n", [L]),
       {Type, S1};
     _ ->
       {Type, S1}
@@ -1200,8 +1215,18 @@ find_ls(Name, #scopes{locals = LS}) ->
       #local_scope{name = Name}
   end.
 
-debug_log(Format, Args) ->
-  io:format("\t" ++ Format, Args).
+debug_log(#scopes{state = State}, Format, Args) ->
+  debug_log0(State#state.compiler_opts, Format, Args);
+debug_log(#state{compiler_opts = Opts}, Format, Args) ->
+  debug_log0(Opts, Format, Args).
+
+debug_log0(CompilerOpts, Format, Args) ->
+  case lists:member(type_debug, CompilerOpts) of
+    true ->
+      io:format(Format, Args);
+    false ->
+      ok
+  end.
 
 %%%_* Emacs ====================================================================
 %%% Local Variables:
