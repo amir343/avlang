@@ -3,6 +3,7 @@
 %%
 %% {fun_sig, Line, Name, Type}
 %% {fun_type, Is, O}
+%% {untyped_fun, nil, nil}
 %% {type_alias, Line, Name, Type}
 %% {type_cons, Line, Name, Params, Type}
 %% {type_instance, Name, Params}
@@ -849,7 +850,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
                               _  -> {Ts ++ [T2], VTs ++ VarTypes}
                             end;
                           _ ->
-                            {Ts ++ [T2], VTs}
+                            {Ts ++ [T1], VTs}
                         end
                     end, {[], []}, lists:zip3(Args, TypedArgs, Is)),
       %% If the new TypedArgs is an exact match of callee then we can

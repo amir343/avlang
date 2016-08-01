@@ -319,6 +319,8 @@ type_terminals({terl_atom_type, _} = T) ->
   [T];
 type_terminals({untyped_fun, nil, nil} = T) ->
   [T];
+type_terminals(T) when is_list(T) ->
+  lists:flatten([type_terminals(TT) || TT <- T]);
 type_terminals(undefined) ->
   [undefined];
 type_terminals(W) ->

@@ -317,9 +317,10 @@ expr -> 'catch' expr : {'catch',?anno('$1'),'$2'}.
 expr -> expr_90 : '$1'.
 
 expr_90 -> var '::' '(' terl_fun_type_100 ')' '=' expr_150
-             : {match,?anno('$6'),'$1','$4','$7'}.
+             : terl_make_typed_match(?anno('$6'), '$1', '$4', '$7').
+
 expr_90 -> var '::' terl_output_top '=' expr_150
-             : {match,?anno('$4'),'$1','$3','$5'}.
+             : terl_make_typed_match(?anno('$4'),'$1','$3','$5').
 expr_90 -> expr_100 : '$1'.
 
 expr_100 -> expr_150 '=' expr_100 : {match,?anno('$2'),'$1','$3'}.
@@ -1469,6 +1470,14 @@ mk_type_cons_param(T) ->
                      ++  " parameter '~w'", [Var]));
     false ->
       {terl_generic_type, Var}
+  end.
+
+terl_make_typed_match(Line, Var, Type, Expr) ->
+  case Type of
+    {fun_type, _, _} ->
+      {match, Line, Var, [Type], Expr};
+    _ ->
+      {match, Line, Var, Type, Expr}
   end.
 
 %% vim: ft=erlang
