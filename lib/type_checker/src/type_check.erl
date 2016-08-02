@@ -41,21 +41,26 @@
                , errors           = []
                , compiler_opts    = []
                , erlang_types     = dict:new()
+               , guard_types      = dict:new()
          }).
 
 -define(TYPE_MSG, type_err_msg).
 
-module(Forms, FileName, Opts) ->
-  ErlangTypes = bootstrap_types(),
+module(Forms, FileName, Opts0) ->
+  Opts1 = type_check_compiler_opts:options_of_interest(Opts0),
+  ErlangTypes = bootstrap_erlang_types(),
+  ErlangGuardTypes = erlang_guard_signature(),
   run_passes(standard_passes(),
              Forms,
              FileName,
              [],
-             #state{erlang_types = ErlangTypes, compiler_opts = Opts}).
+             #state{ erlang_types = ErlangTypes
+                   , guard_types = ErlangGuardTypes
+                   , compiler_opts = Opts1}).
 
-bootstrap_types() ->
-  EbinDir = code:lib_dir(type_checker, priv),
-  {ok, [Term | _]} = file:consult(filename:join(EbinDir, "erlang_types.eterm")),
+bootstrap_erlang_types() ->
+  PrivDir = code:lib_dir(type_checker, priv),
+  {ok, [Term | _]} = file:consult(filename:join(PrivDir, "erlang_types.eterm")),
   ParsedSignature = [begin
                        try
                          {ok, Tokens, _} = erl_scan:string(T),
@@ -82,6 +87,22 @@ bootstrap_types() ->
           {Dict1, dict:store(N, substitute_type_alias(T, Dict2), Dict2)}
       end, {dict:new(), dict:new()}, ParsedSignature),
   Sigs.
+
+erlang_guard_signature() ->
+  PrivDir = code:lib_dir(type_checker, priv),
+  {ok, [Term | _]} =
+    file:consult(filename:join(PrivDir, "erlang_guards.eterm")),
+  lists:foldl(fun(T, Dict) ->
+                  try
+                    {ok, Tokens, _} = erl_scan:string(T),
+                    {ok, {fun_sig, _, N, Ts} = FT} = erl_parse:parse(Tokens),
+                    dict:append(N, FT, Dict)
+                  catch
+                    _:E ->
+                      io:format("Syntax error: ~p~n", [T]),
+                      throw(E)
+                  end
+              end, dict:new(), Term).
 
 substitute_type_alias(T, Aliases) ->
   type_internal:type_map(
@@ -121,15 +142,15 @@ standard_passes() ->
   , fun type_check/3
   ].
 
-type_lint(Forms, FileName, State) ->
-  debug_log(State, "~p~n", [Forms]),
-  St = collect_types(Forms, State),
-  check_consistency_type_cons(St, FileName),
-  check_consistency_fun_sigs(St, FileName),
-  St1 = no_remote_fun_sig_declared(St),
-  Ws1 = check_unsued_user_defined_types(FileName, St1),
-  check_undefined_types(FileName, St1),
-  match_fun_sig_with_declared_fun(St1),
+type_lint(Forms, FileName, St0) ->
+  St1 = collect_types(Forms, St0),
+  debug_log(St1, "~p~n", [Forms]),
+  check_consistency_type_cons(St1, FileName),
+  check_consistency_fun_sigs(St1, FileName),
+  St2 = no_remote_fun_sig_declared(St1),
+  Ws1 = check_unsued_user_defined_types(FileName, St2),
+  check_undefined_types(FileName, St2),
+  match_fun_sig_with_declared_fun(St2),
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
@@ -174,13 +195,9 @@ collect_types([], St) ->
   St.
 
 insert_compiler_options(St=#state{compiler_opts = Opts}, Options) ->
-  Opts1 = lists:foldl(fun(O, Acc) ->
-                          case lists:member(O, Opts) of
-                            true  -> Acc;
-                            false -> [O | Acc]
-                          end
-                      end, [], Options),
-  St#state{compiler_opts = Opts1 ++ Opts}.
+  Opts1 = type_check_compiler_opts:options_of_interest(Options),
+  Opts2 = gb_sets:to_list(gb_sets:from_list(Opts ++ Opts1)),
+  St#state{compiler_opts = Opts2}.
 
 %% Extract user defined types given at line L and associate each one with
 %% line L in the returned state.type_used_loc.
@@ -417,6 +434,7 @@ fun_arity([{fun_type, I, _} | _]) ->
         , global              = dict:new()
         , state               = #state{}
         , errors              = []
+        , fun_lookup          = []
         , first_pass          = true}).
 
 
@@ -676,12 +694,13 @@ update_undefined(S0=#scopes{local = L}) ->
   UnDefs1 = count_undefined_local_scope(L),
   update_undefined_types_in_local(UnDefs1, S0).
 
-type_check_clause0(undefined, {clause, _L, Args, _G, _E} = Cl, Scope0) ->
-  Scope1 = lists:foldl(fun(Var, S0) ->
-                            insert_args(Var, undefined, S0)
-                        end, Scope0, [A || {Kind, _, _} = A
-                                              <- Args, Kind =:= var]),
-  type_check_clause1(Cl, Scope1);
+type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, Scopes0) ->
+  Scopes1 = type_check_clause_guard(G, Scopes0),
+  Scopes2 = lists:foldl(fun(Var, S0) ->
+                           insert_args(Var, undefined, S0)
+                       end, Scopes1, [A || {Kind, _, _} = A
+                                            <- Args, Kind =:= var]),
+  type_check_clause1(Cl, Scopes2);
 
 type_check_clause0({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
@@ -693,6 +712,16 @@ type_check_clause0({fun_type, Is, _},
                             insert_args(V, T, S0)
                         end, Scopes0, VarTypes),
   type_check_clause1(Cl, Scopes1).
+
+type_check_clause_guard(Gs, Scopes0=#scopes{}) ->
+  Scopes1 = Scopes0#scopes{fun_lookup = guard_fun_lookup_priorities()},
+  GSeqs = [G1 || G0 <- Gs, G1 <- G0],
+  Scopes2 = lists:foldl(fun(G, S0) ->
+                       {_, S1} = type_check_expr(G, S0),
+                       S1
+                   end, Scopes1, GSeqs),
+  Scopes2#scopes{fun_lookup = standard_fun_lookup_priorities()}.
+
 
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
@@ -742,8 +771,8 @@ check_for_fun_type(Type, Scopes=#scopes{local = L}) ->
 %% Insert argument types into local scope
 insert_args({var, _, '_'}, _, S) ->
   S;
-insert_args({var, L, Var}, Type, S=#scopes{local = LS}) ->
-  case {recursive_lookup(Var, S, LS), Type} of
+insert_args({var, L, Var}, Type, S=#scopes{}) ->
+  case {non_recursive_lookup(Var, S), Type} of
     {undefined, undefined} -> S;
     {undefined, _}         -> insert_args0(Var, L, Type, S);
     {_,         undefined} -> S;
@@ -968,6 +997,14 @@ recursive_lookup(Var, S=#scopes{locals = LS},
       end
   end.
 
+%% Only look in current local scope
+non_recursive_lookup(Var, S=#scopes{local = LS}) ->
+  Vars = LS#local_scope.vars,
+  case dict:find(Var, Vars) of
+    {ok, #meta_var{type = T}} -> T;
+    error -> undefined
+  end.
+
 unwrap_list(_, {list_type, T}, _) ->
   T;
 unwrap_list(_, undefined, _) ->
@@ -1133,14 +1170,26 @@ find_fun_sig(N, A, #scopes{state = State}) ->
     error -> undefined
   end.
 
+find_fun_type_in_guards(N, A, #scopes{state = State}) ->
+  case dict:find(N, State#state.guard_types) of
+    {ok, Vs} ->
+      hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
+         ++ [undefined]);
+    error -> undefined
+  end.
+
+standard_fun_lookup_priorities() ->
+  [ fun find_local_fun_type_in_erlang_types/3
+  , fun find_fun_type_in_local/3
+  , fun find_fun_type_in_global/3
+  , fun find_fun_sig/3].
+
+guard_fun_lookup_priorities() ->
+  [ fun find_fun_type_in_guards/3 ].
+
 %% First checks to see if there exits a type definition in erlang types
 %% then in global scope and finally in function signature
-find_fun_type(N, Ar, Scopes) ->
-  Priorities = [ fun find_local_fun_type_in_erlang_types/3
-               , fun find_fun_type_in_local/3
-               , fun find_fun_type_in_global/3
-               , fun find_fun_sig/3],
-
+find_fun_type(N, Ar, Scopes=#scopes{fun_lookup = Priorities}) ->
   case find_fun_type0(Priorities, N, Ar, Scopes) of
     {fun_sig, _, _, T} -> T;
     undefined -> [undefined];

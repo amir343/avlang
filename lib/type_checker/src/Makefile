@@ -49,7 +49,8 @@ MODULES =  \
 	terl_any \
 	terl_union \
 	type_check \
-	type_internal
+	type_internal \
+	type_check_compiler_opts
 
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
 
