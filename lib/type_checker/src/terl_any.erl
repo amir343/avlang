@@ -7,6 +7,12 @@
 
 -include("type_macros.hrl").
 
+op('==', _)          -> ?BOOLEAN;
+op('=:=', _)         -> ?BOOLEAN;
+
+op('/=', _)          -> ?BOOLEAN;
+op('=/=', _)         -> ?BOOLEAN;
+
 op(_, _) -> ?INVALID.
 
 op(_)    -> ?INVALID.

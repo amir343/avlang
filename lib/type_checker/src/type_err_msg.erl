@@ -153,6 +153,18 @@ format_error0({multiple_match_for_function_call, MatchingTypes}) ->
     [list_to_string_sep(Matches, "~n\t")]
    );
 
+format_error0({conflicting_clause_var_type, V, T, T1}) ->
+  io_lib:format(
+    "Var ~p must be of type ~s but is ~s",
+    [V, pp_type(T1), pp_type(T)]
+   );
+
+format_error0({type_error_case_expression, E}) ->
+  io_lib:format(
+    "Can not infer type for case expression ~s",
+    [pp_expr(E)]
+   );
+
 format_error0(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 

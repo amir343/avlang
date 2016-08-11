@@ -23,6 +23,7 @@
 -export([ module/3
         ]).
 
+-export([find_lcs/1]).
 
 -record(state, { fun_sigs         = dict:new()
                  %% {key, [{fun_sig, L, N, [T]}]}
@@ -95,7 +96,7 @@ erlang_guard_signature() ->
   lists:foldl(fun(T, Dict) ->
                   try
                     {ok, Tokens, _} = erl_scan:string(T),
-                    {ok, {fun_sig, _, N, Ts} = FT} = erl_parse:parse(Tokens),
+                    {ok, {fun_sig, _, N, _Ts} = FT} = erl_parse:parse(Tokens),
                     dict:append(N, FT, Dict)
                   catch
                     _:E ->
@@ -420,9 +421,10 @@ fun_arity([{fun_type, I, _} | _]) ->
         { name                = nil
           %% vars :: Dict(Var, #meta_var)
         , vars                = dict:new()
-        , type                = nil
+        , type                = undefined
           %% Pointer to outer local scope name
         , outer_scope         = nil
+        , inner_scopes        = gb_sets:new()
           %% last fun type signature for fun expression
         , last_ftype          = undefined
         , last_nr_undefined   = infinty}).
@@ -438,11 +440,16 @@ fun_arity([{fun_type, I, _} | _]) ->
         , first_pass          = true}).
 
 
-type_check0(Forms, FileName, State) ->
+type_check0(Forms, FileName, State=#state{compiler_opts = Opts}) ->
   Scopes0 = #scopes{state = State},
 
   S = type_check_loop(1, Forms, Scopes0, -1),
-  #scopes{errors = Errs0} = S,
+  #scopes{errors = Errs0, locals = LS} = S,
+
+  case type_check_compiler_opts:dump_local_scopes(Opts) of
+    true -> dump_local_scopes(LS);
+    false -> ok
+  end,
 
   debug_log(S, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
   debug_log(S, "Number of errors: ~p~n", [length(Errs0)]),
@@ -640,14 +647,15 @@ infer_function_type(NA, InferredTypeFSigList, Scopes) ->
 
 infer_function_clause(_, FT, undefined, S) ->
   {FT, S};
-infer_function_clause(NAL, FT1, FT2, S=#scopes{}) ->
-  case type_internal:type_equivalent(FT1, FT2) of
-    true -> {FT2, S};
+infer_function_clause(NAL, Inferred, Declared, S=#scopes{}) ->
+  case type_internal:sub_type_of(Declared, Inferred) of
+    true -> {Declared, S};
     false ->
       {N, A, L} = NAL,
-      Err = {L, ?TYPE_MSG,
-             {declared_inferred_fun_type_do_not_match, N, A, FT2, FT1}},
-      {FT1, S#scopes{errors = S#scopes.errors ++ [Err]}}
+      Err =
+        {L, ?TYPE_MSG,
+         {declared_inferred_fun_type_do_not_match, N, A, Declared, Inferred}},
+      {Inferred, S#scopes{errors = S#scopes.errors ++ [Err]}}
   end.
 
 validate_fun_type(NAL, FTypes, Scopes) ->
@@ -668,8 +676,6 @@ validate_fun_type0(NAL, FType, S=#scopes{}) ->
 type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
   case FP of
     true ->
-      debug_log(S,
-                "\t~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n", [LS#local_scope.name]),
       {Res, S1} = type_check_clause0(FSig, Cls, S),
       S2 = update_undefined(S1),
       {Res, S2};
@@ -679,8 +685,6 @@ type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
         0 ->
           {LS#local_scope.type, S};
         _ ->
-          debug_log(S, "\t~~~~~~~~~~~~~~ ~p ~~~~~~~~~~~~~~ ~n",
-                    [LS#local_scope.name]),
           {Res, S1} = type_check_clause0(FSig, Cls, S),
           S2 = update_undefined(S1),
           {Res, S2}
@@ -691,8 +695,12 @@ type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
 %% to save cost of calculation to one time so later passes
 %% won't calculate this if it's already 0.
 update_undefined(S0=#scopes{local = L}) ->
+  InnerScopes =
+    [find_ls(In, S0) || In <- gb_sets:to_list(L#local_scope.inner_scopes)],
+  UnDefsInnerScopes =
+    lists:sum([count_undefined_local_scope(IS) || IS <- InnerScopes]),
   UnDefs1 = count_undefined_local_scope(L),
-  update_undefined_types_in_local(UnDefs1, S0).
+  update_undefined_types_in_local(UnDefs1 + UnDefsInnerScopes, S0).
 
 type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, Scopes0) ->
   Scopes1 = type_check_clause_guard(G, Scopes0),
@@ -749,9 +757,9 @@ type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
 type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
   Scopes1 = check_for_fun_type(Type, Scopes0),
   {Inferred, Scopes2} = type_of(RHS, Scopes1),
-  assert_type_equality(Var, L, Type, Inferred),
-  {_, Scopes3} = update_local(Scopes2, V, Inferred),
-  {Inferred, Scopes3};
+  Scopes3 = assert_type_equality(Var, L, Type, Inferred, Scopes2),
+  {_, Scopes4} = update_local(Scopes3, V, Inferred),
+  {Inferred, Scopes4};
 
 type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
@@ -773,7 +781,7 @@ insert_args({var, _, '_'}, _, S) ->
   S;
 insert_args({var, L, Var}, Type, S=#scopes{}) ->
   case {non_recursive_lookup(Var, S), Type} of
-    {undefined, undefined} -> S;
+    {undefined, undefined} -> insert_args0(Var, L, Type, S);
     {undefined, _}         -> insert_args0(Var, L, Type, S);
     {_,         undefined} -> S;
     {_,         _}         -> insert_args0(Var, L, Type, S)
@@ -803,6 +811,12 @@ type_of({integer, _, _}, S) ->
 
 type_of({float, _, _}, S) ->
   {type_internal:tag_built_in('Float'), S};
+
+type_of({atom, _, true}, S) ->
+  {type_internal:tag_built_in('Boolean'), S};
+
+type_of({atom, _, false}, S) ->
+  {type_internal:tag_built_in('Boolean'), S};
 
 type_of({atom, _, T}, S) ->
   {{terl_atom_type, T}, S};
@@ -919,9 +933,82 @@ type_of({call, L, NN, Args}, Scopes0) ->
       {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ [Err]}}
   end;
 
+type_of({'case', _, E, Cls}, Scopes0) ->
+  {TE, Scopes1} = type_of(E, Scopes0),
+  Scopes2 = case TE of
+              undefined ->
+                eliminate_based_on_clauses(E, Cls, Scopes1);
+              _ ->
+                Scopes1
+            end,
+  {_, TCls, Scopes3} =
+    lists:foldl(fun({clause, L1, Es, Gs, Cs} = Cl, {Ind, Ts, S0}) ->
+                    Name = create_case_clause_name(Ind, L1, Es, Gs, Cs),
+                    S1 = nest_ls(Name, S0),
+                    {TC, S2} = type_check_case_clause(TE, Cl, S1),
+                    S3 = sync_ls(Name, S2),
+                    {Ind + 1, Ts ++ [TC], S3}
+                end, {0, [], Scopes2}, Cls),
+  Tlcs = find_lcs(TCls),
+  {Tlcs, Scopes3};
+
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
+
+eliminate_based_on_clauses(E, Cls, Scopes0) ->
+  VTsDict = lists:foldl(fun({clause, _, Es, _, _}, VTDict) ->
+                        {TES, _} = type_of(hd(Es), Scopes0),
+                        VT0 = type_internal:eliminate(E, TES),
+                        lists:foldl(fun({K,V}, Dict) ->
+                                        dict:append(K, V, Dict)
+                                    end, VTDict, VT0)
+                    end, dict:new(), Cls),
+  lists:foldl(fun({K, Vs}, S0) ->
+                  T = find_lcs(Vs),
+                  update_local(S0, [{K, T}])
+              end, Scopes0, dict:to_list(VTsDict)).
+
+type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
+  Scopes1 = type_check_clause_guard(Gs, S0),
+
+  VTs = type_internal:eliminate(hd(Es), TE),
+  Scopes2 = assert_found_vt(L, Scopes1, VTs),
+  Scopes3 = update_local(Scopes2, VTs),
+
+  {TLastCl, Scopes4} =
+    lists:foldl(fun(Expr, {_, SS0}) ->
+                    {T, S1} = type_check_expr(Expr, SS0),
+                    LineNum = integer_to_list(element(2, Expr)),
+                    update_local(S1, LineNum, T)
+                end, {nil, Scopes3}, Cls),
+
+  Scopes5 =
+    Scopes4#scopes{local =
+                     (Scopes4#scopes.local)#local_scope{type = TLastCl}},
+
+  {TLastCl, check_local_scope(Scopes5)}.
+
+assert_found_vt(L, S=#scopes{}, VTs) ->
+  Errs =
+    lists:foldl(fun({{_, _, V}, T}, Errs0) ->
+                    case non_recursive_lookup(V, S) of
+                      undefined -> Errs0;
+                      T -> Errs0;
+                      T1 ->
+                        [{L, ?TYPE_MSG, {conflicting_clause_var_type, V, T, T1}}
+                         | Errs0]
+                    end
+                end, [], VTs),
+  S#scopes{errors = Errs ++ S#scopes.errors}.
+
+find_lcs(TCls) ->
+  lists:foldl(fun(T1, T2) ->
+                  type_internal:lcs(T1, T2)
+              end, nothing, TCls).
+
+create_case_clause_name(Ind, L, Es, Gs, Cls) ->
+    {"case_clause", L, length(Es), length(Gs), length(Cls), Ind}.
 
 assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
   S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
@@ -997,8 +1084,37 @@ recursive_lookup(Var, S=#scopes{locals = LS},
       end
   end.
 
+recursive_ls_lookup(Var, LS, Locals) ->
+  case recursive_ls_lookup0(Var, LS, Locals) of
+    nil ->
+      LS;
+    Other ->
+      Other
+  end.
+
+recursive_ls_lookup0(Var,
+                 LS=#local_scope{vars = Vars, outer_scope = OS},
+                   Locals) ->
+  case dict:find(Var, Vars) of
+    {ok, _} ->
+      LS;
+    error ->
+      case OS of
+        nil ->
+          nil;
+        ParentLS ->
+          case dict:find(ParentLS, Locals) of
+            {ok, LS1} -> recursive_ls_lookup0(Var, LS1, Locals);
+            error ->
+              io:format("WARNING! This should not happen at all, "
+                        ++ "a pointer to non-existing local scope?!", []),
+              nil
+          end
+      end
+  end.
+
 %% Only look in current local scope
-non_recursive_lookup(Var, S=#scopes{local = LS}) ->
+non_recursive_lookup(Var, #scopes{local = LS}) ->
   Vars = LS#local_scope.vars,
   case dict:find(Var, Vars) of
     {ok, #meta_var{type = T}} -> T;
@@ -1006,6 +1122,8 @@ non_recursive_lookup(Var, S=#scopes{local = LS}) ->
   end.
 
 unwrap_list(_, {list_type, T}, _) ->
+  T;
+unwrap_list(_, {terl_type, 'Any'} = T, _) ->
   T;
 unwrap_list(_, undefined, _) ->
   undefined;
@@ -1033,16 +1151,18 @@ assert_tuple_validity(TES, _L) ->
   end.
 
 
-assert_type_equality(Var, L, Declared, Inferred) ->
+assert_type_equality(Var, L, Declared, Inferred, S=#scopes{errors = Errs}) ->
   case Inferred of
     undefined ->
-      ok;
+      S;
     T ->
       case type_internal:type_equivalent(T, Declared) of
-        true -> ok;
+        true -> S;
         false ->
-          throw({error,
-                 L, {declared_inferred_not_match, Var, Declared, Inferred}})
+          S#scopes{
+            errors = Errs ++
+              [{L, ?TYPE_MSG,
+                {declared_inferred_not_match, Var, Declared, Inferred}}]}
       end
   end.
 
@@ -1093,14 +1213,18 @@ update_local(S0, VarTypes) ->
              end, S0, VarTypes).
 
 %% Returns {Type, Scopes}
-update_local(S=#scopes{}, {var, L, V}, Type) ->
+update_local(S=#scopes{local = CurrLS, locals = LsDict}, {var, L, V}, Type) ->
+  FoundLS = recursive_ls_lookup(V, CurrLS, LsDict),
   MetaVar = #meta_var{type = Type, line = L},
-  LS = (S#scopes.local),
-  S1 = S#scopes{local =
-                  LS#local_scope{vars =
+  FoundLS1 = FoundLS#local_scope{vars =
                                    dict:store(V
                                              , MetaVar
-                                             , LS#local_scope.vars)}},
+                                             , FoundLS#local_scope.vars)},
+  LsDict0 = dict:store(CurrLS#local_scope.name, CurrLS, LsDict),
+  LsDict1 = dict:store(FoundLS#local_scope.name, FoundLS1, LsDict0),
+  S1 = S#scopes{local = find_ls(CurrLS#local_scope.name, LsDict1),
+               locals = LsDict1},
+
   case Type of
     undefined ->
       debug_log(S, "\t~p :: ?~n", [V]),
@@ -1226,12 +1350,17 @@ find_fun_type_in_erlang_types(M, N, Ar, #scopes{state = State}) ->
 %% initializes a new one
 start_ls(Name, S=#scopes{}) ->
   L = find_ls(Name, S),
+  debug_log(S, "\t-------------- ~p -------------- ~n", [Name]),
   S#scopes{local = L}.
 
 %% Same as `start_ls` except it nests the local scope
 nest_ls(Name, S=#scopes{local = OuterScope, locals = LS}) ->
+  debug_log(S, "\t-------------- ~p -------------- ~n", [Name]),
   OuterScopeName = OuterScope#local_scope.name,
-  LS1 = dict:store(OuterScopeName, OuterScope, LS),
+  OuterScope1 =
+    OuterScope#local_scope{
+      inner_scopes = gb_sets:add(Name, OuterScope#local_scope.inner_scopes)},
+  LS1 = dict:store(OuterScopeName, OuterScope1, LS),
   case dict:find(Name, LS) of
     {ok, L} ->
       S#scopes{local = L, locals = LS1};
@@ -1257,7 +1386,10 @@ update_undefined_types_in_local(UnDefs, S=#scopes{local = L}) ->
 
 %% Find local scope by its given name
 find_ls(Name, #scopes{locals = LS}) ->
-  case dict:find(Name, LS) of
+  find_ls(Name, LS);
+
+find_ls(Name, LocalsDict) ->
+  case dict:find(Name, LocalsDict) of
     {ok, L} ->
       L;
     _ ->
@@ -1277,8 +1409,56 @@ debug_log0(CompilerOpts, Format, Args) ->
       ok
   end.
 
+dump_local_scopes(LsDict) ->
+  io:format("~.55c~n", [$-]),
+  LS = dict:to_list(LsDict),
+  [dump_local_scope(L) ||
+    L <- lists:sort(
+           fun({E1, _}, {E2, _}) ->
+               element(2, E1) < element(2, E2)
+           end, LS)].
+
+dump_local_scope({Name, #local_scope{ vars = Vars
+                                    , type = Type
+                                    , inner_scopes = IS
+                                    , outer_scope = OS}}) ->
+  N = io_lib:format("~p", [Name]),
+  io:format("Name: ~s~n", [N]),
+  io:format("Vars:~n", []),
+  Vs = lists:sort(fun({_, #meta_var{line = L1}}, {_, #meta_var{line = L2}}) ->
+                      L1 < L2
+                  end, dict:to_list(Vars)),
+  [ io:format("~30.s :: ~s~n", [V, type_err_msg:pp_type(T)])
+   || {V, #meta_var{type = T}} <- Vs],
+  io:format("Type:~n", []),
+  io:format("~.5c ~s~n", [$ , type_err_msg:pp_type(Type)]),
+  case gb_sets:size(IS) of
+    0 -> ok;
+    _ ->
+      io:format("Inner Scopes:~n", []),
+      [io:format("~.5c ~p~n", [$ , I]) || I <- gb_sets:to_list(IS)]
+  end,
+  case OS of
+    nil -> ok;
+    _ ->
+      io:format("Outer Scopes:~n", []),
+      io:format("~.5c ~p~n", [$ , OS])
+  end,
+  io:format("~.55c~n", [$-]).
+
 %%%_* Emacs ====================================================================
 %%% Local Variables:
 %%% allout-layout: t
 %%% erlang-indent-level: 2
 %%% End:
+
+
+
+
+
+
+
+
+
+
+
