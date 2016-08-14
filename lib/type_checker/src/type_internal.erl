@@ -3,6 +3,8 @@
 -export([ built_in/1
         , dispatch/2
         , dispatch/3
+        , eliminate/2
+        , eliminate/3
         , extract_generic_types/1
         , extract_type_terminals/2
         , extract_user_defined_types/1
@@ -11,8 +13,6 @@
         , lcs/2
         , op/1
         , op/2
-        , eliminate/2
-        , eliminate/3
         , sub_type_of/2
         , tag_built_in/1
         , type_equivalent/2
@@ -83,16 +83,16 @@ lcs(T) ->
   io:format("No lcs defined to ~p~n", [T]),
   ?ANY.
 
+lcs(T, nothing) ->
+  T;
+lcs(nothing, T) ->
+  T;
 lcs({list_type, T1}, T2) ->
   terl_list:lcs(T1, T2);
 lcs(undefined, _) ->
   undefined;
 lcs(_, undefined) ->
   undefined;
-lcs(T, nothing) ->
-  T;
-lcs(nothing, T) ->
-  T;
 lcs({union_type, _} = T1, {union_type, _} = T2) ->
   case type_equivalent(T1, T2) of
     true -> T1;
@@ -190,8 +190,11 @@ type_equivalent(_, _) ->
 
 
 
-sub_type_of({fun_type, _, _} = FT1, {fun_type, _, _} = FT2) ->
-  type_equivalent(FT1, FT2);
+sub_type_of({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
+  lists:all(fun({I1, I2}) ->
+                sub_type_of(I1, I2)
+            end, lists:zip(Is1, Is2)) andalso
+  sub_type_of(O2, O1);
 sub_type_of({union_type, Ts1}, {union_type, _} = UT2) ->
   lists:all(fun(E) -> E =:= true end,
             [sub_type_of(T, UT2) || T <- Ts1]);
@@ -207,7 +210,7 @@ sub_type_of(_, {terl_type, 'Term'}) ->
 sub_type_of(_, {terl_type, 'Any'}) ->
   true;
 sub_type_of(T1, T2) ->
-  type_equivalent(T1, T2) orelse false.
+  type_equivalent(T1, T2).
 
 
 %% Tries to pattern match LHS and RHS and infer type

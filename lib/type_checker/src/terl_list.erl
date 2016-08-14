@@ -18,6 +18,12 @@ op('--', T, {list_type, T})       -> {list_type, T};
 op('++', T, undefined)            -> {list_type, T};
 op('--', T, undefined)            -> {list_type, T};
 
+op('==', _, _)                    -> ?BOOLEAN;
+op('=:=', _, _)                   -> ?BOOLEAN;
+
+op('/=', _, _)                    -> ?BOOLEAN;
+op('=/=', _, _)                   -> ?BOOLEAN;
+
 op(_, _, undefined)               -> ?UNDEFINED;
 
 
