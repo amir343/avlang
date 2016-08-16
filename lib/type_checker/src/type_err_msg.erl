@@ -165,6 +165,12 @@ format_error0({type_error_case_expression, E}) ->
     [pp_expr(E)]
    );
 
+format_error0({wrong_guard_type, G, WrongType}) ->
+  io_lib:format(
+    "Expected guard ~s to have type of 'Boolean' but has '~s'",
+    [pp_expr(G), pp_type(WrongType)]
+   );
+
 format_error0(W) ->
   io_lib:format("Undefined Error in type system: ~p ", [W]).
 

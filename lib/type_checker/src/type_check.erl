@@ -725,11 +725,20 @@ type_check_clause_guard(Gs, Scopes0=#scopes{}) ->
   Scopes1 = Scopes0#scopes{fun_lookup = guard_fun_lookup_priorities()},
   GSeqs = [G1 || G0 <- Gs, G1 <- G0],
   Scopes2 = lists:foldl(fun(G, S0) ->
-                       {_, S1} = type_check_expr(G, S0),
-                       S1
+                       {TG, S1} = type_check_expr(G, S0),
+                       assert_guard_type(G, TG, S1)
                    end, Scopes1, GSeqs),
   Scopes2#scopes{fun_lookup = standard_fun_lookup_priorities()}.
 
+assert_guard_type(G, T, Scopes=#scopes{}) ->
+  case T of
+    {terl_type, 'Boolean'} ->
+      Scopes;
+    WrongType ->
+      Scopes#scopes{
+        errors = Scopes#scopes.errors ++
+          [{element(2, G), ?TYPE_MSG, {wrong_guard_type, G, WrongType}}]}
+  end.
 
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
@@ -943,7 +952,8 @@ type_of({'case', _, E, Cls}, Scopes0) ->
             end,
   {_, TCls, Scopes3} =
     lists:foldl(fun({clause, L1, Es, Gs, Cs} = Cl, {Ind, Ts, S0}) ->
-                    Name = create_case_clause_name(Ind, L1, Es, Gs, Cs),
+                    Name =
+                      create_clause_name("case_clause", Ind, L1, Es, Gs, Cs),
                     S1 = nest_ls(Name, S0),
                     {TC, S2} = type_check_case_clause(TE, Cl, S1),
                     S3 = sync_ls(Name, S2),
@@ -951,6 +961,19 @@ type_of({'case', _, E, Cls}, Scopes0) ->
                 end, {0, [], Scopes2}, Cls),
   Tlcs = find_lcs(TCls),
   {Tlcs, Scopes3};
+
+type_of({'if', _, Cls}, Scopes0) ->
+  {_, TCls, Scopes1} =
+    lists:foldl(fun({clause, L1, _, Gs, Exprs} = Cl, {Ind, Ts, S0}) ->
+                    Name =
+                      create_clause_name("if_clause", Ind, L1, [], Gs, Exprs),
+                    S1 = nest_ls(Name, S0),
+                    {TC, S2} = type_check_if_clause(Cl, S1),
+                    S3 = sync_ls(Name, S2),
+                    {Ind + 1, Ts ++ [TC], S3}
+                end, {0, [], Scopes0}, Cls),
+  Tlcs = find_lcs(TCls),
+  {Tlcs, Scopes1};
 
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
@@ -968,6 +991,22 @@ eliminate_based_on_clauses(E, Cls, Scopes0) ->
                   T = find_lcs(Vs),
                   update_local(S0, [{K, T}])
               end, Scopes0, dict:to_list(VTsDict)).
+
+type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
+  Scopes1 = type_check_clause_guard(Gs, S0),
+
+  {TLastCl, Scopes2} =
+    lists:foldl(fun(Expr, {_, SS0}) ->
+                    {T, S1} = type_check_expr(Expr, SS0),
+                    LineNum = integer_to_list(element(2, Expr)),
+                    update_local(S1, LineNum, T)
+                end, {nil, Scopes1}, Cls),
+
+  Scopes3 =
+    Scopes2#scopes{local =
+                     (Scopes2#scopes.local)#local_scope{type = TLastCl}},
+
+  {TLastCl, check_local_scope(Scopes3)}.
 
 type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   Scopes1 = type_check_clause_guard(Gs, S0),
@@ -1007,8 +1046,8 @@ find_lcs(TCls) ->
                   type_internal:lcs(T1, T2)
               end, nothing, TCls).
 
-create_case_clause_name(Ind, L, Es, Gs, Cls) ->
-    {"case_clause", L, length(Es), length(Gs), length(Cls), Ind}.
+create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
+    {Prefix, L, length(Es), length(Gs), length(Cls), Ind}.
 
 assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
   S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};

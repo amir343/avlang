@@ -209,9 +209,10 @@ sub_type_of(_, {terl_type, 'Term'}) ->
   true;
 sub_type_of(_, {terl_type, 'Any'}) ->
   true;
-sub_type_of(T1, T2) ->
-  type_equivalent(T1, T2).
-
+sub_type_of(T, T) ->
+  true;
+sub_type_of(_, _) ->
+  false.
 
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
