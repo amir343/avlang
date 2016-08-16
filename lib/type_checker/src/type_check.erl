@@ -855,7 +855,7 @@ type_of({var, _L, Var}, #scopes{local = LS} = S) ->
 type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
   {TT0, Scopes2} = type_of(T, Scopes1),
-  TT1 = unwrap_list(T, TT0, L),
+  TT1 = unwrap_list(TT0, L),
   {assert_list_validity(TH, TT1), Scopes2};
 
 type_of({tuple, L, Es}, Scopes0) ->
@@ -974,6 +974,27 @@ type_of({'if', _, Cls}, Scopes0) ->
                 end, {0, [], Scopes0}, Cls),
   Tlcs = find_lcs(TCls),
   {Tlcs, Scopes1};
+
+type_of({generate, L, P, E}, Scopes0) ->
+  {TE, Scopes1} = type_of(E, Scopes0),
+  VTs = type_internal:eliminate(P, unwrap_list(TE, L)),
+  {TE, update_local(Scopes1, VTs)};
+
+type_of({lc, L, E, Qs}, Scopes0) ->
+  Name = {"lc", L, length(Qs)},
+  Scopes1 = nest_ls(Name, Scopes0),
+  Scopes2 = lists:foldl(fun(Q, S0) ->
+                            {_, S1} = type_of(Q, S0),
+                            S1
+                        end, Scopes1, Qs),
+  {TE, Scopes3} = type_of(E, Scopes2),
+  LCType = {list_type, TE},
+  Scopes4 =
+    Scopes3#scopes{local =
+                     (Scopes3#scopes.local)#local_scope{type = LCType}},
+
+  Scopes5 = sync_ls(Name, Scopes4),
+  {LCType, Scopes5};
 
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
@@ -1160,13 +1181,13 @@ non_recursive_lookup(Var, #scopes{local = LS}) ->
     error -> undefined
   end.
 
-unwrap_list(_, {list_type, T}, _) ->
+unwrap_list({list_type, T}, _) ->
   T;
-unwrap_list(_, {terl_type, 'Any'} = T, _) ->
+unwrap_list({terl_type, 'Any'} = T, _) ->
   T;
-unwrap_list(_, undefined, _) ->
+unwrap_list(undefined, _) ->
   undefined;
-unwrap_list(_, T, L) ->
+unwrap_list(T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
