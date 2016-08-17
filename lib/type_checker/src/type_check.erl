@@ -1098,7 +1098,7 @@ find_exact_match(_, undefined) ->
 find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
   Res = lists:foldl(fun({T1, T2}, L) ->
                         case type_internal:sub_type_of(T1, T2) of
-                          true -> L ++ [true];
+                          true  -> L ++ [true];
                           false -> L ++ [{false, T1, T2}]
                         end
                     end, [], lists:zip(TypedArgs, Is)),

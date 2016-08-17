@@ -34,6 +34,8 @@ module_of({terl_type, 'Any'}) ->
   ?ANY_MOD;
 module_of({terl_type, 'Boolean'}) ->
   ?BOOLEAN_MOD;
+module_of({terl_type, 'Pid'}) ->
+  ?PID_MOD;
 module_of({union_type, _}) ->
   ?UNION_MOD;
 module_of({list_type, _}) ->
@@ -189,12 +191,27 @@ type_equivalent(_, _) ->
   false.
 
 
-
+sub_type_of([_ | _] = T1, [_ | _] = T2) ->
+  lists:all(fun(R) ->
+                R =:= true
+            end,
+            [sub_type_of(TT1, T2) || TT1 <- T1]);
+sub_type_of(T1, [_ | _] = T2) ->
+  lists:any(fun(R) ->
+                R =:= true
+            end,
+            [sub_type_of(T1, TT) || TT <- T2]);
+sub_type_of([_ | _] = T1, T2) ->
+  lists:any(fun(A) ->
+                sub_type_of(A, T2)
+            end, T1);
 sub_type_of({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
   lists:all(fun({I1, I2}) ->
                 sub_type_of(I1, I2)
             end, lists:zip(Is1, Is2)) andalso
   sub_type_of(O2, O1);
+sub_type_of({fun_type, _, _}, {untyped_fun, nil, nil}) ->
+  true;
 sub_type_of({union_type, Ts1}, {union_type, _} = UT2) ->
   lists:all(fun(E) -> E =:= true end,
             [sub_type_of(T, UT2) || T <- Ts1]);
