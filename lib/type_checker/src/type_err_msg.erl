@@ -211,6 +211,9 @@ pp_type({fun_type, Is, O}) ->
   TIs = [pp_type(I) || I <- Is],
   io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), pp_type(O)]);
 
+pp_type({untyped_fun, nil, nil}) ->
+  "(..) -> ..";
+
 pp_type({union_type, Ts}) ->
   TEs = [pp_type(T) || T <- Ts],
   io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);

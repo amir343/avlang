@@ -41,16 +41,17 @@ RELSYSDIR = $(RELEASE_PATH)/lib/type_checker-$(VSN)
 # Target Specs
 # ----------------------------------------------------
 MODULES =  \
+	terl_any \
 	terl_boolean \
 	terl_float \
 	terl_integer \
 	terl_list \
+	terl_pid \
 	terl_string \
-	terl_any \
 	terl_union \
 	type_check \
-	type_internal \
-	type_check_compiler_opts
+	type_check_compiler_opts \
+	type_internal
 
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
 
@@ -122,11 +123,12 @@ release_docs_spec:
 # Dependencies -- alphabetically, please
 # ----------------------------------------------------
 
+$(EBIN)/terl_any.beam: type_macros.hrl
 $(EBIN)/terl_boolean.beam: type_macros.hrl
-$(EBIN)/terl_integer.beam: type_macros.hrl
 $(EBIN)/terl_float.beam: type_macros.hrl
+$(EBIN)/terl_integer.beam: type_macros.hrl
 $(EBIN)/terl_list.beam: type_macros.hrl
 $(EBIN)/terl_string.beam: type_macros.hrl
-$(EBIN)/terl_any.beam: type_macros.hrl
-$(EBIN)/type_internal.beam: type_macros.hrl
+$(EBIN)/terl_pid.beam: type_macros.hrl
 $(EBIN)/terl_union.beam: type_macros.hrl
+$(EBIN)/type_internal.beam: type_macros.hrl
