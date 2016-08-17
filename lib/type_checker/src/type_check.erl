@@ -750,9 +750,7 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
                 end, {nil, Scopes0}, Exprs),
   TIn = [element(1, type_of(Arg, Scopes1)) || Arg <- Args],
   ClauseType = {fun_type, TIn, TOut},
-  Scopes2 =
-    Scopes1#scopes{local =
-                     (Scopes1#scopes.local)#local_scope{type = ClauseType}},
+  Scopes2 = update_type_in_local_scope(ClauseType, Scopes1),
   {ClauseType, check_local_scope(Scopes2)}.
 
 
@@ -855,7 +853,7 @@ type_of({var, _L, Var}, #scopes{local = LS} = S) ->
 type_of({cons, L, H, T}, Scopes0) ->
   {TH, Scopes1} = type_of(H, Scopes0),
   {TT0, Scopes2} = type_of(T, Scopes1),
-  TT1 = unwrap_list(T, TT0, L),
+  TT1 = unwrap_list(TT0, L),
   {assert_list_validity(TH, TT1), Scopes2};
 
 type_of({tuple, L, Es}, Scopes0) ->
@@ -975,6 +973,36 @@ type_of({'if', _, Cls}, Scopes0) ->
   Tlcs = find_lcs(TCls),
   {Tlcs, Scopes1};
 
+type_of({generate, L, P, E}, Scopes0) ->
+  {TE, Scopes1} = type_of(E, Scopes0),
+  VTs = type_internal:eliminate(P, unwrap_list(TE, L)),
+  {TE, update_local(Scopes1, VTs)};
+
+type_of({lc, L, E, Qs}, Scopes0) ->
+  Name = {"lc", L, length(Qs)},
+  Scopes1 = nest_ls(Name, Scopes0),
+  Scopes2 = lists:foldl(fun(Q, S0) ->
+                            {_, S1} = type_of(Q, S0),
+                            S1
+                        end, Scopes1, Qs),
+  {TE, Scopes3} = type_of(E, Scopes2),
+  LCType = {list_type, TE},
+  Scopes4 = update_type_in_local_scope(LCType, Scopes3),
+  Scopes5 = sync_ls(Name, Scopes4),
+  {LCType, Scopes5};
+
+type_of({block, L, Exprs}, Scopes0) ->
+  Name = {"block", L, length(Exprs)},
+  Scopes1 = nest_ls(Name, Scopes0),
+  {TLastExpr, Scopes2} =
+    lists:foldl(fun(Expr, S0) ->
+                    type_of(Expr, S0)
+                end, Scopes1, Exprs),
+
+  Scopes3 = update_type_in_local_scope(TLastExpr, Scopes2),
+  Scopes4 = sync_ls(Name, Scopes3),
+  {TLastExpr, Scopes4};
+
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
@@ -1002,10 +1030,7 @@ type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
                     update_local(S1, LineNum, T)
                 end, {nil, Scopes1}, Cls),
 
-  Scopes3 =
-    Scopes2#scopes{local =
-                     (Scopes2#scopes.local)#local_scope{type = TLastCl}},
-
+  Scopes3 = update_type_in_local_scope(TLastCl, Scopes2),
   {TLastCl, check_local_scope(Scopes3)}.
 
 type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
@@ -1022,10 +1047,7 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
                     update_local(S1, LineNum, T)
                 end, {nil, Scopes3}, Cls),
 
-  Scopes5 =
-    Scopes4#scopes{local =
-                     (Scopes4#scopes.local)#local_scope{type = TLastCl}},
-
+  Scopes5 = update_type_in_local_scope(TLastCl, Scopes4),
   {TLastCl, check_local_scope(Scopes5)}.
 
 assert_found_vt(L, S=#scopes{}, VTs) ->
@@ -1160,13 +1182,13 @@ non_recursive_lookup(Var, #scopes{local = LS}) ->
     error -> undefined
   end.
 
-unwrap_list(_, {list_type, T}, _) ->
+unwrap_list({list_type, T}, _) ->
   T;
-unwrap_list(_, {terl_type, 'Any'} = T, _) ->
+unwrap_list({terl_type, 'Any'} = T, _) ->
   T;
-unwrap_list(_, undefined, _) ->
+unwrap_list(undefined, _) ->
   undefined;
-unwrap_list(_, T, L) ->
+unwrap_list(T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
@@ -1434,6 +1456,11 @@ find_ls(Name, LocalsDict) ->
     _ ->
       #local_scope{name = Name}
   end.
+
+update_type_in_local_scope(Type, Scopes0) ->
+  Scopes0#scopes{local =
+                   (Scopes0#scopes.local)#local_scope{type = Type}}.
+
 
 debug_log(#scopes{state = State}, Format, Args) ->
   debug_log0(State#state.compiler_opts, Format, Args);
