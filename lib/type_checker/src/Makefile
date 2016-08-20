@@ -43,6 +43,7 @@ RELSYSDIR = $(RELEASE_PATH)/lib/type_checker-$(VSN)
 MODULES =  \
 	terl_any \
 	terl_boolean \
+	terl_binary \
 	terl_float \
 	terl_integer \
 	terl_list \
@@ -125,6 +126,7 @@ release_docs_spec:
 
 $(EBIN)/terl_any.beam: type_macros.hrl
 $(EBIN)/terl_boolean.beam: type_macros.hrl
+$(EBIN)/terl_binary.beam: type_macros.hrl
 $(EBIN)/terl_float.beam: type_macros.hrl
 $(EBIN)/terl_integer.beam: type_macros.hrl
 $(EBIN)/terl_list.beam: type_macros.hrl

@@ -90,6 +90,11 @@ format_error0({declared_inferred_not_match, Var, Declared, Inferred}) ->
     "Expected variable ~p to be of type '~s' but is '~s'",
     [Var, pp_type(Declared), pp_type(Inferred)]);
 
+format_error0({expected_binary_type, Var, WrongType}) ->
+  io_lib:format(
+    "Expected ~p to be of type 'Binary' but is '~s'",
+    [pp_expr(Var), pp_type(WrongType)]);
+
 format_error0({invalid_operator, Op, TL, TR}) ->
   io_lib:format(
     "Invalid operator ~p on types ~s and ~s",
@@ -149,7 +154,7 @@ format_error0({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
 format_error0({multiple_match_for_function_call, MatchingTypes}) ->
   Matches = [pp_type(T) || T <- MatchingTypes],
   io_lib:format(
-    "Function call can be matched will mulitple types:~n\t~s",
+    "Function call can be matched with mulitple types:~n\t~s",
     [list_to_string_sep(Matches, "~n\t")]
    );
 
@@ -169,6 +174,12 @@ format_error0({wrong_guard_type, G, WrongType}) ->
   io_lib:format(
     "Expected guard ~s to have type of 'Boolean' but has '~s'",
     [pp_expr(G), pp_type(WrongType)]
+   );
+
+format_error0({bin_segment_conflicting_types, Var, Ts}) ->
+  io_lib:format(
+    "Variable ~p has conflicting types: ~s",
+    [Var, list_to_string_sep([pp_type(T) || T <- Ts], $,)]
    );
 
 format_error0(W) ->

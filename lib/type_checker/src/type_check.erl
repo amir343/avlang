@@ -704,10 +704,12 @@ update_undefined(S0=#scopes{local = L}) ->
 
 type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, Scopes0) ->
   Scopes1 = type_check_clause_guard(G, Scopes0),
+  VarArgs = lists:foldl(fun(Arg, Acc) ->
+                            type_internal:var_terminals(Arg) ++ Acc
+                        end, [], Args),
   Scopes2 = lists:foldl(fun(Var, S0) ->
                            insert_args(Var, undefined, S0)
-                       end, Scopes1, [A || {Kind, _, _} = A
-                                            <- Args, Kind =:= var]),
+                       end, Scopes1, VarArgs),
   type_check_clause1(Cl, Scopes2);
 
 type_check_clause0({fun_type, Is, _},
@@ -758,7 +760,8 @@ type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
   VarTypes = type_internal:eliminate(LHS, Inferred),
   Scopes2 = update_local(Scopes1, VarTypes),
-  {Inferred, Scopes2};
+  Scopes3 = type_of_lhs(LHS, Scopes2),
+  {Inferred, Scopes3};
 
 %% When there is type declaration
 type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
@@ -770,6 +773,12 @@ type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
 
 type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
+
+type_of_lhs({bin, _, _} = Bin, Scopes0) ->
+  {_, Scopes1} = type_of(Bin, Scopes0),
+  Scopes1;
+type_of_lhs(_, Scopes) ->
+  Scopes.
 
 check_for_fun_type(Type, Scopes=#scopes{local = L}) ->
   case Type of
@@ -978,6 +987,13 @@ type_of({generate, L, P, E}, Scopes0) ->
   VTs = type_internal:eliminate(P, unwrap_list(TE, L)),
   {TE, update_local(Scopes1, VTs)};
 
+type_of({b_generate, L, P, E}, Scopes0) ->
+  {TE, Scopes1} = type_of(E, Scopes0),
+  {TP, Scopes2} = type_of(P, Scopes1),
+  Scopes3 = assert_binary_type(E, TE, L, Scopes2),
+  Scopes4 = assert_binary_type(P, TP, L, Scopes3),
+  {TE, Scopes4};
+
 type_of({lc, L, E, Qs}, Scopes0) ->
   Name = {"lc", L, length(Qs)},
   Scopes1 = nest_ls(Name, Scopes0),
@@ -991,6 +1007,18 @@ type_of({lc, L, E, Qs}, Scopes0) ->
   Scopes5 = sync_ls(Name, Scopes4),
   {LCType, Scopes5};
 
+type_of({bc, L, E, Qs}, Scopes0) ->
+  Name = {"bc", L, length(Qs)},
+  Scopes1 = nest_ls(Name, Scopes0),
+  Scopes2 = lists:foldl(fun(Q, S0) ->
+                            {_, S1} = type_of(Q, S0),
+                            S1
+                        end, Scopes1, Qs),
+  {TE, Scopes3} = type_of(E, Scopes2),
+  Scopes4 = update_type_in_local_scope(TE, Scopes3),
+  Scopes5 = sync_ls(Name, Scopes4),
+  {TE, Scopes5};
+
 type_of({block, L, Exprs}, Scopes0) ->
   Name = {"block", L, length(Exprs)},
   Scopes1 = nest_ls(Name, Scopes0),
@@ -1002,6 +1030,27 @@ type_of({block, L, Exprs}, Scopes0) ->
   Scopes3 = update_type_in_local_scope(TLastExpr, Scopes2),
   Scopes4 = sync_ls(Name, Scopes3),
   {TLastExpr, Scopes4};
+
+type_of({bin, _,  BinSegments}, Scopes0) ->
+  Scopes1 = lists:foldl(fun(Seg, S0) ->
+                            {_, S1} = type_of(Seg, S0),
+                            S1
+                        end, Scopes0, BinSegments),
+  {{terl_type, 'Binary'}, Scopes1};
+
+type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, Scopes0) ->
+  {TSL, Scopes1} =
+    case terl_binary:type_specifier_list(TSLs) of
+      [T] -> {T, Scopes0};
+      Ts   -> {undefined,
+               Scopes0#scopes{
+                 errors = Scopes0#scopes.errors ++
+                   {L, ?TYPE_MSG, {bin_segment_conflicting_types, Var, Ts}}}}
+    end,
+  update_local(Scopes1, V, TSL);
+
+type_of({bin_element, _, _, _, _}, Scopes0) ->
+ {{terl_type, 'Integer'}, Scopes0};
 
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
@@ -1062,6 +1111,15 @@ assert_found_vt(L, S=#scopes{}, VTs) ->
                     end
                 end, [], VTs),
   S#scopes{errors = Errs ++ S#scopes.errors}.
+
+assert_binary_type(Expr, T, L, Scopes0) ->
+  case T of
+    {terl_type, 'Binary'} ->
+      Scopes0;
+    TWrong ->
+      Scopes0#scopes{errors = Scopes0#scopes.errors ++
+                       [{L, ?TYPE_MSG, {expected_binary_type, Expr, TWrong}}]}
+  end.
 
 find_lcs(TCls) ->
   lists:foldl(fun(T1, T2) ->
@@ -1517,14 +1575,3 @@ dump_local_scope({Name, #local_scope{ vars = Vars
 %%% allout-layout: t
 %%% erlang-indent-level: 2
 %%% End:
-
-
-
-
-
-
-
-
-
-
-
