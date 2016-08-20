@@ -19,6 +19,7 @@
         , type_map/2
         , type_tag/1
         , type_terminals/1
+        , var_terminals/1
         ]).
 
 -include("type_macros.hrl").
@@ -85,6 +86,8 @@ lcs(T) ->
   io:format("No lcs defined to ~p~n", [T]),
   ?ANY.
 
+lcs(T, T) ->
+  T;
 lcs(T, nothing) ->
   T;
 lcs(nothing, T) ->
@@ -270,6 +273,25 @@ ulist(_) ->
   undefined.
 
 
+var_terminals(Expr) ->
+  var_terminals(Expr, []).
+
+var_terminals({integer, _, _}, Rs) ->
+  Rs;
+var_terminals({atom, _, _}, Rs) ->
+  Rs;
+var_terminals({var, _, '_'}, Rs) ->
+  Rs;
+var_terminals({var, _, _} = V, Rs) ->
+  [V | Rs];
+var_terminals({cons, _, A, B}, Rs0) ->
+  Rs1 = var_terminals(A, Rs0),
+  var_terminals(B, Rs1);
+var_terminals({tuple, _L, Es}, Rs0) ->
+  lists:flatten([var_terminals(E, []) || E <- Es]) ++ Rs0;
+var_terminals(_, W) ->
+  W.
+
 
 type_map({fun_sig, L, N, Ts}, FMap) ->
   {fun_sig, L, N, [type_map(T, FMap)|| T <- Ts]};
@@ -322,6 +344,8 @@ type_terminals({fun_type, Is, O}) ->
     ++ type_terminals(O);
 type_terminals({union_type, Ts}) ->
   lists:flatten([type_terminals(T) || T <- Ts]);
+type_terminals({list_type, nothing} = T) ->
+ [T];
 type_terminals({list_type, T}) ->
   type_terminals(T);
 type_terminals({tuple_type, Ts}) ->
