@@ -3,11 +3,13 @@
 -export([ built_in/1
         , dispatch/2
         , dispatch/3
-        , eliminate/2
         , eliminate/3
+        , eliminate/4
         , extract_generic_types/1
         , extract_type_terminals/2
         , extract_user_defined_types/1
+        , find_record_type/2
+        , find_record_field_type/2
         , invalid_operator/0
         , lcs/1
         , lcs/2
@@ -23,7 +25,7 @@
         ]).
 
 -include("type_macros.hrl").
-
+-include("type_checker_state.hrl").
 
 module_of({terl_type, 'Integer'}) ->
   ?INTEGER_MOD;
@@ -237,21 +239,21 @@ sub_type_of(_, _) ->
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
 %% we need to eliminate to all posssible terminals in LHS.
-eliminate(LHS, T) ->
-  eliminate(LHS, T, []).
+eliminate(LHS, T, Scopes) ->
+  eliminate(LHS, T, [], Scopes).
 
-eliminate({integer, _, _}, _, Rs) ->
+eliminate({integer, _, _}, _, Rs, _) ->
   Rs;
-eliminate({atom, _, _}, _, Rs) ->
+eliminate({atom, _, _}, _, Rs, _) ->
   Rs;
-eliminate({var, _, '_'}, _, Rs) ->
+eliminate({var, _, '_'}, _, Rs, _) ->
   Rs;
-eliminate({var, _, _} = V, T, Rs) ->
+eliminate({var, _, _} = V, T, Rs, _) ->
   [{V, T} | Rs];
-eliminate({cons, _, A, B}, T, Rs0) ->
-  Rs1 = eliminate(A, ulist(T), Rs0),
-  eliminate(B, T, Rs1);
-eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
+eliminate({cons, _, A, B}, T, Rs0, Scopes) ->
+  Rs1 = eliminate(A, ulist(T), Rs0, Scopes),
+  eliminate(B, T, Rs1, Scopes);
+eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, _) ->
   case length(Es) =/= length(Ts) of
     true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
     false ->
@@ -259,13 +261,25 @@ eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0) ->
                       eliminate(K, V, Acc)
                   end, Rs0, lists:zip(Es, Ts))
   end;
-eliminate({tuple, _L, Es}, _, Rs0) ->
+eliminate({tuple, _L, Es}, _, Rs0, _) ->
   lists:flatten([eliminate(E, undefined, []) || E <- Es]) ++ Rs0;
 eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
-       {terl_type, string} = T, Rs) ->
-  eliminate(V, T, Rs);
-eliminate(_, _, W) ->
+       {terl_type, string} = T, Rs, Scopes) ->
+  eliminate(V, T, Rs, Scopes);
+eliminate({match, _, {record, _, _, _} = R, _}, T, Rs, Scopes) ->
+  eliminate(R, T, Rs, Scopes);
+eliminate({record, _, _, _} = R, _T, Rs, Scopes) ->
+  Rs ++ eliminate_record_type(R, Scopes);
+eliminate(_, _, W, _) ->
   W.
+
+eliminate_record_type({record, _, N, Ts}, Scopes0=#scopes{state = St}) ->
+  TR = find_record_type(N, St),
+  lists:foldl(fun({record_field, _, {atom, _, F}, V}, Acc) ->
+                  TF = find_record_field_type(F, TR),
+                  Acc ++ eliminate(V, TF, Scopes0)
+              end, [], Ts).
+
 
 ulist({list_type, T}) ->
   T;
@@ -364,6 +378,8 @@ type_terminals({terl_user_defined, _} = T) ->
   [T];
 type_terminals({terl_atom_type, _} = T) ->
   [T];
+type_terminals({record_type, _} = T) ->
+  [T];
 type_terminals({untyped_fun, nil, nil} = T) ->
   [T];
 type_terminals(T) when is_list(T) ->
@@ -374,3 +390,13 @@ type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
 
 
+find_record_type(N, #state{record_types = RT}) ->
+  case dict:find(N, RT) of
+    {ok, T} -> T;
+    error   -> undefined
+  end.
+
+find_record_field_type(_, undefined) ->
+  undefined;
+find_record_field_type(F, T) ->
+  proplists:get_value(F, T).

@@ -23,29 +23,12 @@
 -export([ module/3
         ]).
 
--export([find_lcs/1]).
 
--record(state, { fun_sigs         = dict:new()
-                 %% {key, [{fun_sig, L, N, [T]}]}
-               , remote_fun_sigs  = dict:new()
-                 %% {key, [{fun_remote_sig, L, M, Fun, [T]}]}
-               , type_aliases     = dict:new()
-                 %% {Key, {type_alias, L, N, T}}
-               , type_cons        = dict:new()
-                 %% {Key, {type_cons, L, N, P, T}}
-               , declared_fun     = dict:new()
-                 %% {Key, [{function, ...}]}
-               , type_used        = gb_sets:new()
-                 %% Set(atom)
-               , type_used_loc    = dict:new()
-                 %% {Key, [Line]}
-               , errors           = []
-               , compiler_opts    = []
-               , erlang_types     = dict:new()
-               , guard_types      = dict:new()
-         }).
+-include("type_checker_state.hrl").
 
 -define(TYPE_MSG, type_err_msg).
+
+%%------------------------------------------------------------------------------
 
 module(Forms, FileName, Opts0) ->
   Opts1 = type_check_compiler_opts:options_of_interest(Opts0),
@@ -152,15 +135,16 @@ type_lint(Forms, FileName, St0) ->
   Ws1 = check_unsued_user_defined_types(FileName, St2),
   check_undefined_types(FileName, St2),
   match_fun_sig_with_declared_fun(St2),
+  St3 = build_record_type_with_declared_record(St2),
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
-  Errs0 = St1#state.errors,
+  Errs0 = St3#state.errors,
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
                    , gb_sets:to_list(gb_sets:from_list(Errs0))),
 
   case length(Errs) of
-    0 -> {ok, Ws1, St1};
+    0 -> {ok, Ws1, St3};
     _ -> {error, [{FileName, Errs}], []}
   end.
 
@@ -171,6 +155,8 @@ type_check(Forms, FileName, State) ->
 collect_types([{attribute, _, compile, Opts} | Forms], St0) ->
   St1 = insert_compiler_options(St0, Opts),
   collect_types(Forms, St1);
+collect_types([{attribute, _, record, RecDef} | Forms], St0) ->
+  collect_types(Forms, add_record_def(RecDef, St0));
 collect_types([{fun_sig, L, _, Ts} = Form | Forms], St0) ->
   St1 = extract_user_defined_types_with_locs(Ts, L, St0),
   collect_types(Forms, add_fun_sigs(Form, St1));
@@ -181,6 +167,8 @@ collect_types([{type_alias, L, _, T} = Form | Forms], St0) ->
   collect_types(Forms, add_type_alias(Form, St1));
 collect_types([{type_cons, _, _, _, _} = Form | Forms], St0) ->
   collect_types(Forms, add_type_cons(Form, St0));
+collect_types([{record_type_def, _, _, _} = Form | Forms], St0) ->
+  collect_types(Forms, add_record_type_def(Form, St0));
 collect_types([{function, _L, _N, _A, Cls} = F | Forms], St0) ->
   St1 = collect_types(Cls, St0),
   collect_types(Forms, add_declared_fun(F, St1));
@@ -280,6 +268,28 @@ match_fun_sig0({fun_sig, L2, N, _} = F, DF) ->
       end
     end.
 
+build_record_type_with_declared_record(St=#state{record_types = RT
+                                                , records = Rs}) ->
+  NRT =
+    lists:map(fun({N, {record_type_def, L, _, T}}) ->
+                  case dict:find(N, Rs) of
+                    {ok, RecDef} ->
+                      {N, merge_rec_def_with_type(N, L, RecDef, T)};
+                    error ->
+                      throw({error, L, {no_record_definition, N}})
+                  end
+              end, dict:to_list(RT)),
+  St#state{record_types = dict:from_list(NRT)}.
+
+merge_rec_def_with_type(N, L, RecDef, Ts) ->
+  case length(RecDef) =:= length(Ts) of
+    false ->
+      throw({error, L, {none_matching_record_type, N}});
+    true ->
+      lists:map(fun({{record_field, _, {atom, _, FN}}, T}) ->
+                    {FN, T}
+                end, lists:zip(RecDef, Ts))
+  end.
 
 %% Adds a new function signature to state record or throws an exception if
 %% this function signature is already defined.
@@ -340,6 +350,18 @@ add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{ type_cons = TC
           St#state{type_cons = dict:store(N, F, TC)}
       end
   end.
+
+add_record_type_def({record_type_def, L, N, _T} = R
+                   , St=#state{record_types = RT}) ->
+  case dict:find(N, RT) of
+    {ok, {_, L1, _, _}} ->
+      throw({error, L, {duplicate_record_type, N, L1, L}});
+    error ->
+      St#state{record_types = dict:store(N, R, RT)}
+  end.
+
+add_record_def({N, Def}, St=#state{records = Rs}) ->
+  St#state{records = dict:store(N, Def, Rs)}.
 
 add_declared_fun({function, _, N, _, _} = F, St=#state{declared_fun = DF}) ->
   St#state{declared_fun = dict:append(N, F, DF)}.
@@ -412,33 +434,6 @@ fun_arity([{fun_type, I, _} | _]) ->
 
 
 %%%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
--record(meta_var,
-        { type                = undefined
-        , line                = -1}).
-
--record(local_scope,
-        { name                = nil
-          %% vars :: Dict(Var, #meta_var)
-        , vars                = dict:new()
-        , type                = undefined
-          %% Pointer to outer local scope name
-        , outer_scope         = nil
-        , inner_scopes        = gb_sets:new()
-          %% last fun type signature for fun expression
-        , last_ftype          = undefined
-        , last_nr_undefined   = infinty}).
-
--record(scopes,
-        { local               = nil
-        , locals              = dict:new()
-          %% global :: Dict(N, [[{fun_type}]])
-        , global              = dict:new()
-        , state               = #state{}
-        , errors              = []
-        , fun_lookup          = []
-        , first_pass          = true}).
-
 
 type_check0(Forms, FileName, State=#state{compiler_opts = Opts}) ->
   Scopes0 = #scopes{state = State},
@@ -715,7 +710,7 @@ type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, Scopes0) ->
 type_check_clause0({fun_type, Is, _},
                   {clause, _, Args, _, _} = Cl, Scopes0) ->
   VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
-                             type_internal:eliminate(LHS, RHS, Acc)
+                             type_internal:eliminate(LHS, RHS, Acc, Scopes0)
                          end, [], lists:zip(Args, Is)),
   %% TODO: validity of declared types for args
   Scopes1 = lists:foldl(fun({V, T}, S0) ->
@@ -756,9 +751,16 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
   {ClauseType, check_local_scope(Scopes2)}.
 
 
+type_check_expr({match, L, {record, _, N, _} = R, RHS}, Scopes0) ->
+  {TRHS, Scopes1} = type_of(RHS, Scopes0),
+  VarTypes = type_internal:eliminate(R, {record_type, N}, Scopes1),
+  Scopes2 = update_local(Scopes1, VarTypes),
+  Scopes3 = assert_type_equality(RHS, L, {record_type, N}, TRHS, Scopes2),
+  {TRHS, Scopes3};
+
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
-  VarTypes = type_internal:eliminate(LHS, Inferred),
+  VarTypes = type_internal:eliminate(LHS, Inferred, Scopes1),
   Scopes2 = update_local(Scopes1, VarTypes),
   Scopes3 = type_of_lhs(LHS, Scopes2),
   {Inferred, Scopes3};
@@ -918,7 +920,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
         lists:foldl(fun({A, T1, T2}, {Ts, VTs}) ->
                         case T1 of
                           undefined ->
-                            VarTypes = type_internal:eliminate(A, T2),
+                            VarTypes = type_internal:eliminate(A, T2, Scopes3),
                             case VarTypes of
                               [] -> {Ts ++ [T1], VTs};
                               _  -> {Ts ++ [T2], VTs ++ VarTypes}
@@ -984,7 +986,7 @@ type_of({'if', _, Cls}, Scopes0) ->
 
 type_of({generate, L, P, E}, Scopes0) ->
   {TE, Scopes1} = type_of(E, Scopes0),
-  VTs = type_internal:eliminate(P, unwrap_list(TE, L)),
+  VTs = type_internal:eliminate(P, unwrap_list(TE, L), Scopes1),
   {TE, update_local(Scopes1, VTs)};
 
 type_of({b_generate, L, P, E}, Scopes0) ->
@@ -1052,14 +1054,51 @@ type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, Scopes0) ->
 type_of({bin_element, _, _, _, _}, Scopes0) ->
  {{terl_type, 'Integer'}, Scopes0};
 
+type_of({record, _, N, Fs}, Scopes0=#scopes{state = St}) ->
+  TN = type_internal:find_record_type(N, St),
+  Scopes1 =
+    lists:foldl(fun(F, S0) ->
+                    {_, S1} = type_check_record_field(N, TN, F, S0),
+                    S1
+                end, Scopes0, Fs),
+  {{record_type, N}, Scopes1};
+
+type_of({record_field, L, V, N, {atom,_, F}}, Scopes0=#scopes{state = St}) ->
+  {TV, Scopes1} = type_of(V, Scopes0),
+  Scopes2 = assert_type_equality(V, L, {record_type, N}, TV, Scopes1),
+  TR = type_internal:find_record_type(N, St),
+  TF = type_internal:find_record_field_type(F, TR),
+  {TF, Scopes2};
+
+type_of({match, _, _, _} = M, Scopes0) ->
+  type_check_expr(M, Scopes0);
+
 type_of(T, Scopes) ->
   debug_log(Scopes, "type_of ~p not implemented~n", [T]),
   {undefined, Scopes}.
 
+type_check_record_field(N, TN
+                       , {record_field, L, {atom, _, F}, V}, Scopes0) ->
+  {TV, Scopes1} = type_of(V, Scopes0),
+  TF = type_internal:find_record_field_type(F, TN),
+  Scopes2 = assert_record_field_type_equality(N, L, F, TF, TV, Scopes1),
+  {TF, Scopes2}.
+
+assert_record_field_type_equality(N, L, F, TF, TV,
+                                 Scopes0=#scopes{errors = Errs}) ->
+  case type_internal:type_equivalent(TF, TV) of
+    true ->
+      Scopes0;
+    false ->
+      Scopes0#scopes{errors =
+                       Errs ++ [{L, ?TYPE_MSG,
+                                 {wrong_record_field_type, N, F, TF, TV}}]}
+  end.
+
 eliminate_based_on_clauses(E, Cls, Scopes0) ->
   VTsDict = lists:foldl(fun({clause, _, Es, _, _}, VTDict) ->
                         {TES, _} = type_of(hd(Es), Scopes0),
-                        VT0 = type_internal:eliminate(E, TES),
+                        VT0 = type_internal:eliminate(E, TES, Scopes0),
                         lists:foldl(fun({K,V}, Dict) ->
                                         dict:append(K, V, Dict)
                                     end, VTDict, VT0)
@@ -1085,7 +1124,7 @@ type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
 type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   Scopes1 = type_check_clause_guard(Gs, S0),
 
-  VTs = type_internal:eliminate(hd(Es), TE),
+  VTs = type_internal:eliminate(hd(Es), TE, Scopes1),
   Scopes2 = assert_found_vt(L, Scopes1, VTs),
   Scopes3 = update_local(Scopes2, VTs),
 
