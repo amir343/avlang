@@ -198,6 +198,12 @@ format_error0({wrong_record_field_type, N, F, TF, TV}) ->
     [N, F, pp_type(TF), pp_type(TV)]
    );
 
+format_error0({record_type_not_found, N}) ->
+  io_lib:format(
+    "Record type #~p not found",
+    [N]
+   );
+
 format_error0({bin_segment_conflicting_types, Var, Ts}) ->
   io_lib:format(
     "Variable ~p has conflicting types: ~s",

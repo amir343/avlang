@@ -266,8 +266,6 @@ eliminate({tuple, _L, Es}, _, Rs0, _) ->
 eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
        {terl_type, string} = T, Rs, Scopes) ->
   eliminate(V, T, Rs, Scopes);
-eliminate({match, _, {record, _, _, _} = R, _}, T, Rs, Scopes) ->
-  eliminate(R, T, Rs, Scopes);
 eliminate({record, _, _, _} = R, _T, Rs, Scopes) ->
   Rs ++ eliminate_record_type(R, Scopes);
 eliminate(_, _, W, _) ->

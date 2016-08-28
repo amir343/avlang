@@ -448,7 +448,6 @@ type_check0(Forms, FileName, State=#state{compiler_opts = Opts}) ->
 
   debug_log(S, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
   debug_log(S, "Number of errors: ~p~n", [length(Errs0)]),
-  debug_log(S, "Errors in raw: ~p~n", [Errs0]),
 
   %% Sort based on line numbers
   Errs = lists:sort(fun({L1, _, _}, {L2, _, _}) -> L1 < L2 end
@@ -699,24 +698,44 @@ update_undefined(S0=#scopes{local = L}) ->
 
 type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, Scopes0) ->
   Scopes1 = type_check_clause_guard(G, Scopes0),
+  Scopes2 = arg_type_elimination(Args, Scopes1),
   VarArgs = lists:foldl(fun(Arg, Acc) ->
                             type_internal:var_terminals(Arg) ++ Acc
                         end, [], Args),
-  Scopes2 = lists:foldl(fun(Var, S0) ->
+  Scopes3 = lists:foldl(fun(Var, S0) ->
                            insert_args(Var, undefined, S0)
-                       end, Scopes1, VarArgs),
-  type_check_clause1(Cl, Scopes2);
+                       end, Scopes2, VarArgs),
+  type_check_clause1(Cl, Scopes3);
 
 type_check_clause0({fun_type, Is, _},
-                  {clause, _, Args, _, _} = Cl, Scopes0) ->
+                  {clause, _, Args, G, _} = Cl, Scopes0) ->
+  Scopes1 = type_check_clause_guard(G, Scopes0),
+  Scopes2 = arg_type_elimination(Args, Scopes1),
   VarTypes = lists:foldl(fun({LHS, RHS}, Acc) ->
-                             type_internal:eliminate(LHS, RHS, Acc, Scopes0)
+                             type_internal:eliminate(LHS, RHS, Acc, Scopes2)
                          end, [], lists:zip(Args, Is)),
   %% TODO: validity of declared types for args
-  Scopes1 = lists:foldl(fun({V, T}, S0) ->
+  Scopes3 = lists:foldl(fun({V, T}, S0) ->
                             insert_args(V, T, S0)
-                        end, Scopes0, VarTypes),
-  type_check_clause1(Cl, Scopes1).
+                        end, Scopes2, VarTypes),
+  type_check_clause1(Cl, Scopes3).
+
+arg_type_elimination(Args, Scopes0) ->
+  VarTypes = lists:foldl(fun(Arg, Acc) ->
+                             record_type_elimination(Arg, Scopes0) ++ Acc
+                         end, [], Args),
+  update_local(Scopes0, VarTypes).
+
+record_type_elimination({match, _, {record, _, N, _} = R, T}, Scopes) ->
+  type_internal:eliminate(R, T, Scopes) ++
+    type_internal:eliminate(T, {record_type, N}, Scopes);
+record_type_elimination({match, _, T, {record, _, N, _} = R}, Scopes) ->
+  type_internal:eliminate(R, T, Scopes) ++
+    type_internal:eliminate(T, {record_type, N}, Scopes);
+record_type_elimination({record, _, N, _} = R, Scopes) ->
+  type_internal:eliminate(R, {record_type, N}, Scopes);
+record_type_elimination(_, _) ->
+  [].
 
 type_check_clause_guard(Gs, Scopes0=#scopes{}) ->
   Scopes1 = Scopes0#scopes{fun_lookup = guard_fun_lookup_priorities()},
@@ -727,23 +746,13 @@ type_check_clause_guard(Gs, Scopes0=#scopes{}) ->
                    end, Scopes1, GSeqs),
   Scopes2#scopes{fun_lookup = standard_fun_lookup_priorities()}.
 
-assert_guard_type(G, T, Scopes=#scopes{}) ->
-  case T of
-    {terl_type, 'Boolean'} ->
-      Scopes;
-    WrongType ->
-      Scopes#scopes{
-        errors = Scopes#scopes.errors ++
-          [{element(2, G), ?TYPE_MSG, {wrong_guard_type, G, WrongType}}]}
-  end.
-
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
   {TOut, Scopes1} =
     lists:foldl(fun(Expr, {_, S0}) ->
                     {T, S1} = type_check_expr(Expr, S0),
-                    LineNum = integer_to_list(element(2, Expr)),
-                    update_local(S1, LineNum, T)
+                    LineNum = element(2, Expr),
+                    update_local(S1, "Expression", LineNum, T)
                 end, {nil, Scopes0}, Exprs),
   TIn = [element(1, type_of(Arg, Scopes1)) || Arg <- Args],
   ClauseType = {fun_type, TIn, TOut},
@@ -1044,31 +1053,34 @@ type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, Scopes0) ->
   {TSL, Scopes1} =
     case terl_binary:type_specifier_list(TSLs) of
       [T] -> {T, Scopes0};
-      Ts   -> {undefined,
-               Scopes0#scopes{
-                 errors = Scopes0#scopes.errors ++
-                   {L, ?TYPE_MSG, {bin_segment_conflicting_types, Var, Ts}}}}
+      Ts   ->
+        {undefined, update_errors( Scopes0
+                                 , L
+                                 , {bin_segment_conflicting_types, Var, Ts})}
     end,
   update_local(Scopes1, V, TSL);
 
 type_of({bin_element, _, _, _, _}, Scopes0) ->
  {{terl_type, 'Integer'}, Scopes0};
 
-type_of({record, _, N, Fs}, Scopes0=#scopes{state = St}) ->
+type_of({record, L, N, Fs}, Scopes0=#scopes{state = St}) ->
   TN = type_internal:find_record_type(N, St),
-  Scopes1 =
+  Scopes1 = assert_found_record_type(N, TN, L, Scopes0),
+  Scopes2 =
     lists:foldl(fun(F, S0) ->
                     {_, S1} = type_check_record_field(N, TN, F, S0),
                     S1
-                end, Scopes0, Fs),
-  {{record_type, N}, Scopes1};
+                end, Scopes1, Fs),
+  {{record_type, N}, Scopes2};
 
 type_of({record_field, L, V, N, {atom,_, F}}, Scopes0=#scopes{state = St}) ->
   {TV, Scopes1} = type_of(V, Scopes0),
-  Scopes2 = assert_type_equality(V, L, {record_type, N}, TV, Scopes1),
+  {_, Scopes2} = update_local(Scopes1, V, TV),
+  Scopes3 = assert_type_equality(V, L, {record_type, N}, TV, Scopes2),
   TR = type_internal:find_record_type(N, St),
+  Scopes4 = assert_found_record_type(N, TR, L, Scopes3),
   TF = type_internal:find_record_field_type(F, TR),
-  {TF, Scopes2};
+  {TF, Scopes4};
 
 type_of({match, _, _, _} = M, Scopes0) ->
   type_check_expr(M, Scopes0);
@@ -1080,20 +1092,15 @@ type_of(T, Scopes) ->
 type_check_record_field(N, TN
                        , {record_field, L, {atom, _, F}, V}, Scopes0) ->
   {TV, Scopes1} = type_of(V, Scopes0),
+  Scopes2 = update_field_type(N, F, L, TV, Scopes1),
   TF = type_internal:find_record_field_type(F, TN),
-  Scopes2 = assert_record_field_type_equality(N, L, F, TF, TV, Scopes1),
-  {TF, Scopes2}.
+  Scopes3 = assert_record_field_type_equality(N, L, F, TF, TV, Scopes2),
+  {TF, Scopes3}.
 
-assert_record_field_type_equality(N, L, F, TF, TV,
-                                 Scopes0=#scopes{errors = Errs}) ->
-  case type_internal:type_equivalent(TF, TV) of
-    true ->
-      Scopes0;
-    false ->
-      Scopes0#scopes{errors =
-                       Errs ++ [{L, ?TYPE_MSG,
-                                 {wrong_record_field_type, N, F, TF, TV}}]}
-  end.
+update_field_type(N, F, L, T, Scopes) ->
+  Name = io_lib:format("#~p.~p", [N, F]),
+  {_, Scopes1} = update_local(Scopes, Name, L, T),
+  Scopes1.
 
 eliminate_based_on_clauses(E, Cls, Scopes0) ->
   VTsDict = lists:foldl(fun({clause, _, Es, _, _}, VTDict) ->
@@ -1114,8 +1121,8 @@ type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
   {TLastCl, Scopes2} =
     lists:foldl(fun(Expr, {_, SS0}) ->
                     {T, S1} = type_check_expr(Expr, SS0),
-                    LineNum = integer_to_list(element(2, Expr)),
-                    update_local(S1, LineNum, T)
+                    LineNum = element(2, Expr),
+                    update_local(S1, "Expression", LineNum, T)
                 end, {nil, Scopes1}, Cls),
 
   Scopes3 = update_type_in_local_scope(TLastCl, Scopes2),
@@ -1131,34 +1138,12 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   {TLastCl, Scopes4} =
     lists:foldl(fun(Expr, {_, SS0}) ->
                     {T, S1} = type_check_expr(Expr, SS0),
-                    LineNum = integer_to_list(element(2, Expr)),
-                    update_local(S1, LineNum, T)
+                    LineNum = element(2, Expr),
+                    update_local(S1, "Expression", LineNum, T)
                 end, {nil, Scopes3}, Cls),
 
   Scopes5 = update_type_in_local_scope(TLastCl, Scopes4),
   {TLastCl, check_local_scope(Scopes5)}.
-
-assert_found_vt(L, S=#scopes{}, VTs) ->
-  Errs =
-    lists:foldl(fun({{_, _, V}, T}, Errs0) ->
-                    case non_recursive_lookup(V, S) of
-                      undefined -> Errs0;
-                      T -> Errs0;
-                      T1 ->
-                        [{L, ?TYPE_MSG, {conflicting_clause_var_type, V, T, T1}}
-                         | Errs0]
-                    end
-                end, [], VTs),
-  S#scopes{errors = Errs ++ S#scopes.errors}.
-
-assert_binary_type(Expr, T, L, Scopes0) ->
-  case T of
-    {terl_type, 'Binary'} ->
-      Scopes0;
-    TWrong ->
-      Scopes0#scopes{errors = Scopes0#scopes.errors ++
-                       [{L, ?TYPE_MSG, {expected_binary_type, Expr, TWrong}}]}
-  end.
 
 find_lcs(TCls) ->
   lists:foldl(fun(T1, T2) ->
@@ -1167,11 +1152,6 @@ find_lcs(TCls) ->
 
 create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
     {Prefix, L, length(Es), length(Gs), length(Cls), Ind}.
-
-assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
-  S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
-assert_found_fun_type(_, _, _, _, S) ->
-  S.
 
 generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
   {Res, _} =
@@ -1289,6 +1269,64 @@ unwrap_list(T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
 
+%% Tries to infer the type for a variable based on operator application.
+infer_from_op(Res, {var, _, _} = Var, undefined, Scopes) ->
+  update_local(Scopes, Var, Res);
+infer_from_op(Res, {var, _, _} = Var, {union_type, _}, Scopes) ->
+  update_local(Scopes, Var, Res);
+infer_from_op(_, _, Type, Scopes) ->
+  {Type, Scopes}.
+
+assert_found_vt(L, S=#scopes{}, VTs) ->
+  Errs =
+    lists:foldl(fun({{_, _, V}, T}, Errs0) ->
+                    case non_recursive_lookup(V, S) of
+                      undefined -> Errs0;
+                      T -> Errs0;
+                      T1 ->
+                        [{L, ?TYPE_MSG, {conflicting_clause_var_type, V, T, T1}}
+                         | Errs0]
+                    end
+                end, [], VTs),
+  S#scopes{errors = Errs ++ S#scopes.errors}.
+
+assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
+  S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
+assert_found_fun_type(_, _, _, _, S) ->
+  S.
+
+assert_binary_type(Expr, T, L, Scopes0) ->
+  case T of
+    {terl_type, 'Binary'} ->
+      Scopes0;
+    TWrong ->
+      update_errors(Scopes0, L, {expected_binary_type, Expr, TWrong})
+  end.
+
+assert_found_record_type(N, T, L, Scopes=#scopes{}) ->
+  case T of
+    undefined ->
+      update_errors(Scopes, L, {record_type_not_found, N});
+    _ ->
+      Scopes
+  end.
+
+assert_record_field_type_equality(N, L, F, TF, TV, Scopes0=#scopes{}) ->
+  case type_internal:type_equivalent(TF, TV) of
+    true ->
+      Scopes0;
+    false ->
+      update_errors(Scopes0, L, {wrong_record_field_type, N, F, TF, TV})
+  end.
+
+assert_guard_type(G, T, Scopes=#scopes{}) ->
+  case T of
+    {terl_type, 'Boolean'} ->
+      Scopes;
+    WrongType ->
+      update_errors(Scopes, element(2, G), {wrong_guard_type, G, WrongType})
+  end.
+
 assert_list_validity(TH, TT) ->
   case {TH, TT} of
     {undefined, _}          -> undefined;
@@ -1309,7 +1347,7 @@ assert_tuple_validity(TES, _L) ->
   end.
 
 
-assert_type_equality(Var, L, Declared, Inferred, S=#scopes{errors = Errs}) ->
+assert_type_equality(Var, L, Declared, Inferred, S=#scopes{}) ->
   case Inferred of
     undefined ->
       S;
@@ -1317,41 +1355,27 @@ assert_type_equality(Var, L, Declared, Inferred, S=#scopes{errors = Errs}) ->
       case type_internal:type_equivalent(T, Declared) of
         true -> S;
         false ->
-          S#scopes{
-            errors = Errs ++
-              [{L, ?TYPE_MSG,
-                {declared_inferred_not_match, Var, Declared, Inferred}}]}
+          update_errors(S, L,
+                {declared_inferred_not_match, Var, Declared, Inferred})
       end
   end.
 
-%% Tries to infer the type for a variable based on operator application.
-infer_from_op(Res, {var, _, _} = Var, undefined, Scopes) ->
-  update_local(Scopes, Var, Res);
-infer_from_op(Res, {var, _, _} = Var, {union_type, _}, Scopes) ->
-  update_local(Scopes, Var, Res);
-infer_from_op(_, _, Type, Scopes) ->
-  {Type, Scopes}.
-
-assert_operator_validity(Res, Op, TL, TR, L, Scopes=#scopes{errors = Errs}) ->
+assert_operator_validity(Res, Op, TL, TR, L, Scopes=#scopes{}) ->
   InvalidOp = type_internal:invalid_operator(),
   case Res of
     InvalidOp ->
       {undefined,
-       Scopes#scopes{errors =
-                       Errs ++ [{L, ?TYPE_MSG,
-                                 {invalid_operator, Op, TL, TR}}]}};
+       update_errors(Scopes, L, {invalid_operator, Op, TL, TR})};
     R ->
       {R, Scopes}
   end.
 
-assert_operator_validity(Res, Op, TR, L, Scopes=#scopes{errors = Errs}) ->
+assert_operator_validity(Res, Op, TR, L, Scopes=#scopes{}) ->
   InvalidOp = type_internal:invalid_operator(),
   case Res of
     InvalidOp ->
       {undefined,
-       Scopes#scopes{errors =
-                       Errs ++ [{L, ?TYPE_MSG,
-                                 {invalid_operator, Op, TR}}]}};
+       update_errors(Scopes, L, {invalid_operator, Op, TR})};
     R ->
       {R, Scopes}
   end.
@@ -1394,22 +1418,23 @@ update_local(S=#scopes{local = CurrLS, locals = LsDict}, {var, L, V}, Type) ->
     _ ->
       debug_log(S, "\t~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
       {Type, S1}
-  end;
+  end.
 
-%% Special case to store the type for each expression that is identified with
-%% its line number
-update_local(S=#scopes{}, String, Type) ->
-  L = list_to_integer(String),
+%% Special case to store the type for each expression/record field
+%% that is identified with its line number
+update_local(S=#scopes{}, Name, L, Type) ->
+  Key = Name ++ " at line " ++ integer_to_list(L),
   MetaVar = #meta_var{type = Type, line = L},
+
   LS = (S#scopes.local),
   S1 = S#scopes{local =
                   LS#local_scope{vars =
-                                   dict:store("Expression at line " ++ String
+                                   dict:store(Key
                                              , MetaVar
                                              , LS#local_scope.vars)}},
   case Type of
     undefined ->
-      debug_log(S, "\tExpression @ ~p :: ?~n", [L]),
+      debug_log(S, "\t~s @ ~p :: ?~n", [Name, L]),
       {Type, S1};
     _ ->
       {Type, S1}
@@ -1558,6 +1583,8 @@ update_type_in_local_scope(Type, Scopes0) ->
   Scopes0#scopes{local =
                    (Scopes0#scopes.local)#local_scope{type = Type}}.
 
+update_errors(Scopes=#scopes{errors = Errs}, L, Msg) ->
+  Scopes#scopes{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}.
 
 debug_log(#scopes{state = State}, Format, Args) ->
   debug_log0(State#state.compiler_opts, Format, Args);
@@ -1591,7 +1618,7 @@ dump_local_scope({Name, #local_scope{ vars = Vars
   Vs = lists:sort(fun({_, #meta_var{line = L1}}, {_, #meta_var{line = L2}}) ->
                       L1 < L2
                   end, dict:to_list(Vars)),
-  [ io:format("~30.s :: ~s~n", [V, type_err_msg:pp_type(T)])
+  [ io:format("~40.s :: ~s~n", [V, type_err_msg:pp_type(T)])
    || {V, #meta_var{type = T}} <- Vs],
   io:format("Type:~n", []),
   io:format("~.5c ~s~n", [$ , type_err_msg:pp_type(Type)]),
