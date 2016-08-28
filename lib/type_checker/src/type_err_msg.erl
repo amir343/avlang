@@ -57,6 +57,22 @@ format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
     ++ " signature '~w' at line ~p. This is a fatal error in compiler!",
     [N, L2]);
 
+format_error0({duplicate_record_type, N, L1, L2}) ->
+  io_lib:format(
+    "Record type duplication: #~p is defined at line ~p and ~p",
+    [N, L1, L2]);
+
+format_error0({no_record_definition, N}) ->
+  io_lib:format(
+    "No record definition found for type #~p",
+    [N]);
+
+format_error0({none_matching_record_type, N}) ->
+  io_lib:format(
+    "Record type definition #~p has non-matching number of elements " ++
+      "with record definition",
+    [N]);
+
 format_error0({type_alias_defined_not_used, N}) ->
   io_lib:format(
     "Type alias ~w defined but never used",
@@ -176,6 +192,18 @@ format_error0({wrong_guard_type, G, WrongType}) ->
     [pp_expr(G), pp_type(WrongType)]
    );
 
+format_error0({wrong_record_field_type, N, F, TF, TV}) ->
+  io_lib:format(
+    "Expected record field #~p.~p to have type ~s but has ~s",
+    [N, F, pp_type(TF), pp_type(TV)]
+   );
+
+format_error0({record_type_not_found, N}) ->
+  io_lib:format(
+    "Record type #~p not found",
+    [N]
+   );
+
 format_error0({bin_segment_conflicting_types, Var, Ts}) ->
   io_lib:format(
     "Variable ~p has conflicting types: ~s",
@@ -231,6 +259,9 @@ pp_type({union_type, Ts}) ->
 
 pp_type({terl_atom_type, T}) ->
   io_lib:format("~s", [T]);
+
+pp_type({record_type, N}) ->
+  io_lib:format("#~s", [N]);
 
 pp_type(T) when is_list(T) ->
   Ts = [pp_type(TT) || TT <- T],

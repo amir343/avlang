@@ -57,7 +57,8 @@ MODULES =  \
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
 
 HRL_FILES= \
-	type_macros.hrl
+	type_macros.hrl \
+	type_checker_state.hrl
 
 ERLANG_TYPES = ../priv/erlang_types.eterm
 
@@ -133,4 +134,5 @@ $(EBIN)/terl_list.beam: type_macros.hrl
 $(EBIN)/terl_string.beam: type_macros.hrl
 $(EBIN)/terl_pid.beam: type_macros.hrl
 $(EBIN)/terl_union.beam: type_macros.hrl
-$(EBIN)/type_internal.beam: type_macros.hrl
+$(EBIN)/type_internal.beam: type_macros.hrl type_checker_state.hrl
+$(EBIN)/type_check.beam: type_macros.hrl type_checker_state.hrl

@@ -53,8 +53,8 @@ bin_base_type bin_unit_type type_200 type_300 type_400 type_500
 %% Typed Erlang non-terminals
 terl_fun_type terl_fun_type_100 terl_type_alias terl_gen_type terl_list_type
 terl_inputs terl_inputs_100 terl_input terl_input_top terl_type terl_tuple_type
-terl_output terl_output_top terl_record_field_types terl_record_field_type
-terl_type_cons terl_type_params terl_cons_params terl_cons_param.
+terl_output terl_output_top terl_type_cons terl_type_params terl_cons_params
+terl_cons_param terl_record_type.
 
 
 Terminals
@@ -88,6 +88,7 @@ form -> function dot : '$1'.
 form -> terl_fun_type : '$1'.
 form -> terl_type_alias : '$1'.
 form -> terl_type_cons : '$1'.
+form -> terl_record_type : '$1'.
 
 attribute -> '-' atom attr_val               : build_attribute('$2', '$3').
 attribute -> '-' atom typed_attr_val         : build_typed_attribute('$2','$3').
@@ -98,6 +99,9 @@ attribute -> '-' 'callback' type_spec        : build_type_spec('$2', '$3').
 %%%% Typed Erlang grammar
 terl_type_alias -> atom var '::' terl_output_top dot
                      : mk_type_alias('$1', '$2', '$4').
+
+terl_record_type -> atom '#' atom '::' '{' terl_tuple_type '}' dot
+                      : mk_record_type('$1', '$3', '$6').
 
 terl_fun_type -> atom '::' terl_fun_type_100 dot
                    : terl_build_fun_sig('$1', '$3').
@@ -136,9 +140,7 @@ terl_type -> '[' terl_list_type ']' : {list_type, '$2'}.
 terl_type -> '[' ']' : {list_type, nothing}.
 terl_type -> '{' '}' : {tuple_type, []}.
 terl_type -> '{' terl_tuple_type '}' : {tuple_type, '$2'}.
-terl_type -> '#' atom '{' terl_record_field_types '}'
-               : terl_record_type('$2', '$4').
-terl_type -> '#' atom '{' '}' : terl_record_type('$2', []).
+terl_type -> '#' atom '{' '}' : terl_record_type('$2').
 terl_type -> var : terl_build_type(element(3, '$1')).
 terl_type -> atom : {terl_atom_type, element(3, '$1')}.
 terl_type -> atom ':' var
@@ -153,13 +155,6 @@ terl_type_params -> terl_gen_type ',' terl_type_params : ['$1' | '$3' ].
 
 terl_list_type -> '(' terl_output_top ')': '$2'.
 terl_list_type -> terl_type : '$1'.
-
-terl_record_field_types -> terl_record_field_type ',' terl_record_field_types
-                             : ['$1' | '$3'].
-terl_record_field_types -> terl_record_field_type : ['$1'].
-
-terl_record_field_type -> '(' terl_gen_type ')' : '$2'.
-terl_record_field_type -> terl_type : '$1'.
 
 terl_tuple_type -> '(' terl_gen_type ')' : ['$2'].
 terl_tuple_type -> '(' terl_gen_type ')' ',' terl_tuple_type : ['$2' | '$5'].
@@ -196,6 +191,7 @@ typed_exprs -> expr ',' typed_exprs       : ['$1'|'$3'].
 typed_exprs -> typed_expr ',' exprs       : ['$1'|'$3'].
 
 typed_expr -> expr '::' top_type          : {typed,'$1','$3'}.
+typed_expr -> expr ':' terl_output_top  : {typed, '$1', '$3'}.
 
 type_sigs -> type_sig                     : ['$1'].
 type_sigs -> type_sig ';' type_sigs       : ['$1'|'$3'].
@@ -1413,14 +1409,14 @@ terl_union_type(Types, [R]) when is_tuple(R) ->
 terl_union_type(Types, T) ->
   Types ++ T.
 
-terl_record_type({atom, L, Name}, Fields) ->
+terl_record_type({atom, L, Name}) ->
   case type_internal:built_in(Name) of
     true ->
       return_error(L,
                    io_lib:format(
                      "Record name can not be a built-in type '~w'", [Name]));
     false ->
-      {record_type, Name, Fields}
+      {record_type, Name}
   end.
 
 mk_type_alias(A, Name, Def) ->
@@ -1435,6 +1431,25 @@ mk_type_alias(A, Name, Def) ->
                          "Redefining built-in type '~w'", [TypeName]));
         false ->
           {type_alias, L, element(3, Name), Def}
+      end;
+    T ->
+      return_error(L,
+                   io_lib:format(
+                     "Undefined keyword '~w'", [T]))
+  end.
+
+mk_record_type(A, Name, Def) ->
+  {atom, L, Atom} = A,
+  case Atom of
+    type ->
+      TypeName = element(3, Name),
+      case type_internal:built_in(TypeName) of
+        true ->
+          return_error(L,
+                       io_lib:format(
+                         "Redefining built-in type '~w'", [TypeName]));
+        false ->
+          {record_type_def, L, element(3, Name), Def}
       end;
     T ->
       return_error(L,
