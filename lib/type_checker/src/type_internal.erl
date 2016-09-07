@@ -231,6 +231,8 @@ sub_type_of(_, {terl_type, 'Term'}) ->
   true;
 sub_type_of(_, {terl_type, 'Any'}) ->
   true;
+sub_type_of({terl_atom_type, _}, {terl_type, 'Atom'}) ->
+  true;
 sub_type_of(T, T) ->
   true;
 sub_type_of(_, _) ->
@@ -253,12 +255,12 @@ eliminate({var, _, _} = V, T, Rs, _) ->
 eliminate({cons, _, A, B}, T, Rs0, Scopes) ->
   Rs1 = eliminate(A, ulist(T), Rs0, Scopes),
   eliminate(B, T, Rs1, Scopes);
-eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, _) ->
+eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, Scopes) ->
   case length(Es) =/= length(Ts) of
     true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
     false ->
       lists:foldl(fun({K, V}, Acc) ->
-                      eliminate(K, V, Acc)
+                      eliminate(K, V, Acc, Scopes)
                   end, Rs0, lists:zip(Es, Ts))
   end;
 eliminate({tuple, _L, Es}, _, Rs0, _) ->
