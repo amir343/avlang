@@ -73,6 +73,11 @@ format_error0({none_matching_record_type, N}) ->
       "with record definition",
     [N]);
 
+format_error0({inferred_conflicting_types, V, T1, T2}) ->
+  io_lib:format(
+    "~s has conflicting types: '~s' and '~s'",
+    [pp_expr(V), pp_type(T1), pp_type(T2)]);
+
 format_error0({type_alias_defined_not_used, N}) ->
   io_lib:format(
     "Type alias ~w defined but never used",

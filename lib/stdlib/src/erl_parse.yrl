@@ -313,6 +313,12 @@ clause_body -> '->' exprs: '$2'.
 expr -> 'catch' expr : {'catch',?anno('$1'),'$2'}.
 expr -> expr_90 : '$1'.
 
+expr_90 -> atom var '::' terl_output_top
+             : terl_typed_annotation('$1', '$2', '$4').
+
+expr_90 -> atom var '::' '(' terl_fun_type_100 ')'
+             : terl_typed_annotation('$1', '$2', '$5').
+
 expr_90 -> var '::' '(' terl_fun_type_100 ')' '=' expr_150
              : terl_make_typed_match(?anno('$6'), '$1', '$4', '$7').
 
@@ -1417,6 +1423,25 @@ terl_record_type({atom, L, Name}) ->
                      "Record name can not be a built-in type '~w'", [Name]));
     false ->
       {record_type, Name}
+  end.
+
+terl_typed_annotation(A, Name, Def) ->
+  {atom, L, Atom} = A,
+  case Atom of
+    type ->
+      TypeName = element(3, Name),
+      case type_internal:built_in(TypeName) of
+        true ->
+          return_error(L,
+                       io_lib:format(
+                         "Redefining built-in type '~w'", [TypeName]));
+        false ->
+          {type_anno, L, Name, Def}
+      end;
+    T ->
+      return_error(L,
+                   io_lib:format(
+                     "Undefined keyword '~w'", [T]))
   end.
 
 mk_type_alias(A, Name, Def) ->

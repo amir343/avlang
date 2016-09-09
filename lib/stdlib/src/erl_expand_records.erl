@@ -295,6 +295,8 @@ expr({string,_,_}=String, St) ->
     {String,St};
 expr({nil,_}=Nil, St) ->
     {Nil,St};
+expr({type_anno, _, _, _}=TypeAnno, St) ->
+    {TypeAnno, St};
 expr({cons,Line,H0,T0}, St0) ->
     {H,St1} = expr(H0, St0),
     {T,St2} = expr(T0, St1),
