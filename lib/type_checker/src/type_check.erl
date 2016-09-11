@@ -129,13 +129,13 @@ standard_passes() ->
 type_lint(Forms, FileName, St0) ->
   St1 = collect_types(Forms, St0),
   debug_log(St1, "~p~n", [Forms]),
-  check_consistency_type_cons(St1, FileName),
-  check_consistency_fun_sigs(St1, FileName),
-  St2 = no_remote_fun_sig_declared(St1),
-  Ws1 = check_unsued_user_defined_types(FileName, St2),
-  check_undefined_types(FileName, St2),
-  match_fun_sig_with_declared_fun(St2),
-  St3 = build_record_type_with_declared_record(St2),
+  St2 = check_consistency_type_cons(St1),
+  check_consistency_fun_sigs(St2, FileName),
+  St3 = no_remote_fun_sig_declared(St2),
+  Ws1 = check_unsued_user_defined_types(FileName, St3),
+  St4 = check_undefined_types(St3),
+  St5 = match_fun_sig_with_declared_fun(St4),
+  St6 = build_record_type_with_declared_record(St5),
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
@@ -144,7 +144,7 @@ type_lint(Forms, FileName, St0) ->
                    , gb_sets:to_list(gb_sets:from_list(Errs0))),
 
   case length(Errs) of
-    0 -> {ok, Ws1, St3};
+    0 -> {ok, Ws1, St6};
     _ -> {error, [{FileName, Errs}], []}
   end.
 
@@ -209,18 +209,22 @@ merge(D1, D2) ->
              end, D1, D2).
 
 %% Check if a refered type is undefined in this module
-check_undefined_types(FileName, #state{ type_aliases = TA
-                                      , type_used = TU
-                                      , type_used_loc = TUL}) ->
-  [case dict:find(T, TA) of
-     {ok, _} -> ok;
-     _ ->
-       {ok, L} = dict:find(T, TUL),
-       Locs = gb_sets:to_list(gb_sets:from_list(L)),
-       throw([{FileName, [{L1, ?TYPE_MSG, {undefined_type, T}}]}
-              || L1 <-  Locs])
-   end
-   || T <- gb_sets:to_list(TU)].
+check_undefined_types(State=#state{ type_aliases = TA
+                                  , type_used = TU
+                                  , type_used_loc = TUL}) ->
+  Erros =
+    lists:foldl(fun(T, Acc) ->
+                    case dict:find(T, TA) of
+                      {ok, _} -> Acc;
+                      _ ->
+                        {ok, L} = dict:find(T, TUL),
+                        Locs = gb_sets:to_list(gb_sets:from_list(L)),
+                        Acc ++
+                          [{L1, ?TYPE_MSG, {undefined_type, T}} || L1 <- Locs]
+                    end
+                end, [], gb_sets:to_list(TU)),
+  update_errors(State, Erros).
+
 
 %% Check if user defined types are used
 check_unsued_user_defined_types(FileName, #state{type_aliases = TA
@@ -237,32 +241,37 @@ check_unsued_user_defined_types(FileName, #state{type_aliases = TA
 
 %% Check that the declared funs and corresponding function signature has
 %% the same arity, otherwise, if missing or mismatch, error with proper message.
-match_fun_sig_with_declared_fun(#state{declared_fun = DF, fun_sigs = FS}) ->
-  [case V of
-     [_|_] = L -> [match_fun_sig0(L1, DF) || L1 <- L];
-     A         -> match_fun_sig0(A, DF)
-   end
-   || {_, V} <- dict:to_list(FS)].
+match_fun_sig_with_declared_fun(
+  State=#state{declared_fun = DF, fun_sigs = FS}) ->
+  Errors =
+    lists:foldl(fun({_, V}, Acc) ->
+                    case V of
+                      [_|_] = L -> Acc ++ [match_fun_sig0(L1, DF) || L1 <- L];
+                      A         -> [match_fun_sig0(A, DF) | Acc]
+                    end
+                end, [], dict:to_list(FS)),
+  %% filter out oks and keep error tuples
+  update_errors(State, [E || {_, _, _} = E <- Errors]).
 
 match_fun_sig0({fun_sig, L2, N, _} = F, DF) ->
   SigAr = fun_arity(F),
   case dict:find(N, DF) of
     error ->
-      throw({error, L2, {no_fun_decl_found_for_sig, N, L2}});
+      {L2, ?TYPE_MSG, {no_fun_decl_found_for_sig, N, L2}};
     {ok, [_|_] = L} ->
       case length([E || {function, _, _, Ar, _} = E <- L, SigAr =:= Ar])
       of
         0 ->
-          throw({error, L2, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}});
+          {L2, ?TYPE_MSG, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}};
         1 ->
           ok;
         _ ->
-          throw({error, L2, {multi_match_fun_decl_for_fun_sig, N, L2}})
+          {L2, ?TYPE_MSG, {multi_match_fun_decl_for_fun_sig, N, L2}}
       end;
     {ok, {function, _, _, Ar, _}} ->
       case SigAr =:= Ar of
         false ->
-          throw({error, L2, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}});
+          {L2, ?TYPE_MSG, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}};
         true ->
           ok
       end
@@ -270,28 +279,32 @@ match_fun_sig0({fun_sig, L2, N, _} = F, DF) ->
 
 build_record_type_with_declared_record(St=#state{record_types = RT
                                                 , records = Rs}) ->
-  NRT =
-    lists:map(fun({N, {record_type_def, L, _, T}}) ->
+  {Errs, NRT} =
+    lists:foldl(fun({N, {record_type_def, L, _, T}}, {Errs, Mapped}) ->
                   case dict:find(N, Rs) of
                     {ok, RecDef} ->
-                      {N, merge_rec_def_with_type(N, L, RecDef, T)};
+                      M = merge_rec_def_with_type(N, L, RecDef, T),
+                      {Errs, [M | Mapped]};
                     error ->
-                      throw({error, L, {no_record_definition, N}})
+                      Err = [{L, ?TYPE_MSG, {no_record_definition, N}} | Errs],
+                      {Err, Mapped}
                   end
-              end, dict:to_list(RT)),
-  St#state{record_types = dict:from_list(NRT)}.
+              end, {[], []}, dict:to_list(RT)),
+  St1 = St#state{record_types = dict:from_list(NRT)},
+  update_errors(St1, Errs).
 
 merge_rec_def_with_type(N, L, RecDef, Ts) ->
   case length(RecDef) =:= length(Ts) of
     false ->
       throw({error, L, {none_matching_record_type, N}});
     true ->
-      lists:map(fun({{record_field, _, {atom, _, FN}}, T}) ->
-                    {FN, T}
-                end, lists:zip(RecDef, Ts))
+      M = lists:map(fun({{record_field, _, {atom, _, FN}}, T}) ->
+                        {FN, T}
+                    end, lists:zip(RecDef, Ts)),
+      {N, M}
   end.
 
-%% Adds a new function signature to state record or throws an exception if
+%% Adds a new function signature to state record or adds an error if
 %% this function signature is already defined.
 add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{fun_sigs = FS}) ->
   case dict:find(N, FS) of
@@ -299,7 +312,7 @@ add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{fun_sigs = FS}) ->
       Ar = fun_arity(F),
       case [V || V <- Vs, fun_arity(V) =:= Ar] of
         [{_, L1, _, _} | _] ->
-          throw({error, L2, {duplicate_fun_sig_decl, N, L1, L2}});
+          update_errors(St, L2, {duplicate_fun_sig_decl, N, L1, L2});
         _ ->
           St#state{fun_sigs = dict:append(N, F, FS)}
       end;
@@ -307,8 +320,8 @@ add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{fun_sigs = FS}) ->
       St#state{fun_sigs = dict:append(N, F, FS)}
   end.
 
-%% Adds a new remote function signature to state record or throws
-%% an exception if this function signature is already defined.
+%% Adds a new remote function signature to state record or adds
+%% an error if this function signature is already defined.
 add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F
                    , St=#state{remote_fun_sigs = FS}) ->
   Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
@@ -317,7 +330,7 @@ add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F
       Ar = fun_arity(F),
       case [V || V <- Vs, fun_arity(V) =:= Ar] of
         [{_, L1, _, _} | _] ->
-          throw({error, L2, {duplicate_fun_sig_decl, M, N, L1, L2}});
+          update_errors(St, L2, {duplicate_fun_sig_decl, M, N, L1, L2});
         _ ->
           St#state{remote_fun_sigs = dict:append(Key, F, FS)}
       end;
@@ -325,27 +338,27 @@ add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F
       St#state{remote_fun_sigs = dict:append(Key, F, FS)}
   end.
 
-%% Adds a new type alias to state record or throws an exception if this
+%% Adds a new type alias to state record or adds an error if this
 %% type alias is already defined.
 add_type_alias({type_alias, L2, N, _} = F, St=#state{type_aliases = TA}) ->
   case dict:find(N, TA) of
     {ok, {_, L1, _, _}} ->
-      throw({error, L2, {duplicate_type_alias_decl, N, L1, L2}});
+      update_errors(St, L2, {duplicate_type_alias_decl, N, L1, L2});
     error ->
       St#state{type_aliases = dict:store(N, F, TA)}
   end.
 
-%% Adds a new type constructor to state record or throws an exception if this
+%% Adds a new type constructor to state record or adds an error if this
 %% type cons is already defined by another type cons or type alias.
 add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{ type_cons = TC
                                                      , type_aliases = TA}) ->
   case dict:find(N, TC) of
     {ok, {_, L1, _, _, _}} ->
-      throw({error, L2, {duplicate_type_cons_decl, N, L1, L2}});
+      update_errors(St, L2, {duplicate_type_cons_decl, N, L1, L2});
     error ->
       case dict:find(N, TA) of
         {ok, {_, L3, _, _, _}} ->
-          throw({error, L2, {duplicate_type_cons_decl, N, L2, L3}});
+          update_errors(St, L2, {duplicate_type_cons_decl, N, L2, L3});
         error ->
           St#state{type_cons = dict:store(N, F, TC)}
       end
@@ -355,7 +368,7 @@ add_record_type_def({record_type_def, L, N, _T} = R
                    , St=#state{record_types = RT}) ->
   case dict:find(N, RT) of
     {ok, {_, L1, _, _}} ->
-      throw({error, L, {duplicate_record_type, N, L1, L}});
+      update_errors(St, L, {duplicate_record_type, N, L1, L});
     error ->
       St#state{record_types = dict:store(N, R, RT)}
   end.
@@ -366,36 +379,42 @@ add_record_def({N, Def}, St=#state{records = Rs}) ->
 add_declared_fun({function, _, N, _, _} = F, St=#state{declared_fun = DF}) ->
   St#state{declared_fun = dict:append(N, F, DF)}.
 
-check_consistency_type_cons(#state{type_cons = TC}, FN) ->
-  lists:foreach(fun({_, E}) ->
-                    check_consistency_type_cons_lhs_rhs(E, FN),
-                    no_terl_type_used_lhs(E)
-                end, dict:to_list(TC)).
+check_consistency_type_cons(State=#state{type_cons = TC}) ->
+  lists:foldl(fun({_, E}, St) ->
+                  St1 = check_consistency_type_cons_lhs_rhs(E, St),
+                  no_terl_type_used_lhs(E, St1)
+              end, State, dict:to_list(TC)).
 
-
-no_remote_fun_sig_declared(S=#state{remote_fun_sigs = FSigs, errors = Errs}) ->
+no_remote_fun_sig_declared(S=#state{remote_fun_sigs = FSigs}) ->
   Errors = [{L, ?TYPE_MSG, {no_remote_fun_sig_allowed, M, N}} ||
              {_, RFS} <- dict:to_list(FSigs),
              {fun_remote_sig, L, M, N, _} <- RFS],
-  S#state{errors = Errs ++ Errors}.
+  update_errors(S, Errors).
 
 %% All fun sigs clauses must have same arity
-check_consistency_fun_sigs(#state{fun_sigs = FS}, _FN) ->
- [check_consistency_fun_sigs0(Sig) || {_, Sigs} <- dict:to_list(FS),
-                                      Sig <- Sigs].
+check_consistency_fun_sigs(State=#state{fun_sigs = FS}, _FN) ->
+  lists:foldl(fun({_, Sigs}, St) ->
+                  check_consistency_fun_sigs0(St, Sigs)
+              end, State, dict:to_list(FS)).
 
-check_consistency_fun_sigs0({fun_sig, L, N, Cls}) ->
+check_consistency_fun_sigs0(State=#state{}, Sigs) ->
+  lists:foldl(fun(Sig, St) ->
+                  check_consistency_fun_sig(St, Sig)
+              end, State, Sigs).
+
+check_consistency_fun_sig(State=#state{}, {fun_sig, L, N, Cls}) ->
   SetArity = gb_sets:from_list([fun_arity(Cl) || Cl <- Cls]),
   case gb_sets:size(SetArity) of
     1 ->
-      ok;
+      State;
     _ ->
-      throw({error, L, {fun_sig_clause_arity_not_match, N}})
+      update_errors(State, L, {fun_sig_clause_arity_not_match, N})
   end.
 
 %% Check if that all defined generic type parameters in the left hand side of
 %% type constructor is used in the right hand side and vice versa
-check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
+check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}
+                                   , State=#state{}) ->
   GTI0 = lists:flatten([type_internal:extract_generic_types(I) || I <- Is]),
   GTO0 = type_internal:extract_generic_types(O),
   GTI1 = gb_sets:to_list(gb_sets:from_list(GTI0)),
@@ -403,24 +422,24 @@ check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
   NotUsedRhs = GTI1 -- GTO1,
   NotUsedLhs = GTO1 -- GTI1,
   case NotUsedLhs =:= NotUsedRhs of
-    true -> ok;
+    true -> State;
     false ->
-      Errs = [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}]}
+      Errs = [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}
        || length(NotUsedLhs) =/= 0] ++
-        [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}]}
+        [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}
          || length(NotUsedRhs) =/= 0],
-     throw(Errs)
+     update_errors(State, Errs)
   end.
 
-no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
+no_terl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
   TI0 = lists:flatten([type_internal:type_terminals(I) || I <- Is]),
   TI1 = lists:filter(fun({Tag, _}) -> Tag =/= terl_generic_type end, TI0),
   case length(TI1) of
     0 ->
-      ok;
+      State;
     _ ->
       TI2 = lists:map(fun(E) -> element(2, E) end, TI1),
-      throw({error, L, {tc_only_generic_type_lhs, TI2}})
+      update_errors(State, L, {tc_only_generic_type_lhs, TI2})
   end.
 
 fun_arity({fun_sig, _, _, [{fun_type, I, _} | _]}) ->
@@ -1624,8 +1643,16 @@ update_type_in_local_scope(Type, Scopes0) ->
   Scopes0#scopes{local =
                    (Scopes0#scopes.local)#local_scope{type = Type}}.
 
+update_errors(Scopes=#scopes{errors = Errs}, Errors) when is_list(Errors) ->
+  Scopes#scopes{errors = Errs ++ Errors};
+update_errors(State=#state{errors = Errs}, Errors) when is_list(Errors) ->
+  State#state{errors = Errs ++ Errors}.
+
 update_errors(Scopes=#scopes{errors = Errs}, L, Msg) ->
-  Scopes#scopes{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}.
+  Scopes#scopes{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]};
+
+update_errors(State=#state{errors = Errs}, L, Msg) ->
+  State#state{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}.
 
 debug_log(#scopes{state = State}, Format, Args) ->
   debug_log0(State#state.compiler_opts, Format, Args);
