@@ -3,14 +3,16 @@
 
 -export([ all/0
         , test_binary/0
-        , test_record/0
         , test_misc/0
+        , test_record/0
+        , test_type_syntax/0
        ]).
 
 all() ->
-  [ test_record
-  , test_binary
+  [ test_binary
   , test_misc
+  , test_record
+  , test_type_syntax
   ].
 
 
@@ -29,6 +31,10 @@ test_misc() ->
   AbsForms = abstract_forms_for_module(FileName),
   {ok, []} = type_check:module(AbsForms, FileName, []).
 
+test_type_syntax() ->
+  FileName = "type_syntax_test.erl",
+  AbsForms = abstract_forms_for_module(FileName),
+  {ok, []} = type_check:module(AbsForms, FileName, []).
 
 abstract_forms_for_module(FileName) ->
   TestDir = code:lib_dir(type_checker, test),

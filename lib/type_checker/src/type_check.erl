@@ -475,8 +475,14 @@ type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
                                [N, fun_arity(T), ?TYPE_MSG:pp_type(T)])
                      || T <- TS]
                 end, dict:to_list(Scopes1#scopes.global)),
-  Undefs = count_undefined(Scopes1),
+
+  UndefinedTypes = count_undefined(Scopes1),
+  NErros = length(Scopes1#scopes.errors),
+  Undefs = UndefinedTypes + NErros,
+
   debug_log(Scopes0, "Number of undefined types: ~p~n", [Undefs]),
+  debug_log(Scopes0, "Number of errors: ~p~n", [NErros]),
+
   Scopes2 = Scopes1#scopes{first_pass = false, errors = []},
   case Undefs of
     0 -> Scopes1;    %% All types could be inferred
@@ -767,6 +773,16 @@ type_check_expr({match, L, {record, _, N, _} = R, RHS}, Scopes0) ->
   Scopes3 = assert_type_equality(RHS, L, {record_type, N}, TRHS, Scopes2),
   {TRHS, Scopes3};
 
+type_check_expr({match, _L, LHS, {'fun', _, _} = RHS}, Scopes0) ->
+  {TLHS, Scopes1} = type_of(LHS, Scopes0),
+  Scopes2 = check_for_fun_type(TLHS, Scopes1),
+  {Inferred, Scopes3} = type_of(RHS, Scopes2),
+  Scopes4 = reset_last_ftype(Scopes3),
+  VarTypes = type_internal:eliminate(LHS, Inferred, Scopes4),
+  Scopes5 = update_local(Scopes4, VarTypes),
+  Scopes6 = type_of_lhs(LHS, Scopes5),
+  {Inferred, Scopes6};
+
 type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
   {Inferred, Scopes1} = type_of(RHS, Scopes0),
   VarTypes = type_internal:eliminate(LHS, Inferred, Scopes1),
@@ -778,12 +794,16 @@ type_check_expr({match, _L, LHS, RHS}, Scopes0) ->
 type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, Scopes0) ->
   Scopes1 = check_for_fun_type(Type, Scopes0),
   {Inferred, Scopes2} = type_of(RHS, Scopes1),
-  Scopes3 = assert_type_equality(Var, L, Type, Inferred, Scopes2),
-  {_, Scopes4} = update_local(Scopes3, V, Inferred),
-  {Inferred, Scopes4};
+  Scopes3 = reset_last_ftype(Scopes2),
+  Scopes4 = assert_type_equality(Var, L, Type, Inferred, Scopes3),
+  {_, Scopes5} = update_local(Scopes4, V, Inferred),
+  {Inferred, Scopes5};
 
 type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
+
+reset_last_ftype(Scopes=#scopes{local = LS}) ->
+  Scopes#scopes{local = LS#local_scope{last_ftype = undefined}}.
 
 type_of_lhs({bin, _, _} = Bin, Scopes0) ->
   {_, Scopes1} = type_of(Bin, Scopes0),
@@ -866,6 +886,9 @@ type_of({op, L, Op, RHS}, Scopes0) ->
   {TR, Scopes1} = type_of(RHS, Scopes0),
   Res = dispatch(Op, TR),
   assert_operator_validity(Res, Op, TR, L, Scopes1);
+
+type_of({type_anno, _, V, T}, Scopes0) ->
+  update_local(Scopes0, V, T);
 
 type_of({var, _L, Var}, #scopes{local = LS} = S) ->
   {recursive_lookup(Var, S, LS), S};
@@ -1394,14 +1417,32 @@ update_local(S0, VarTypes) ->
                   S1
              end, S0, VarTypes).
 
+assert_and_update_type(V, L, NewType, Dict) ->
+  OldType = case dict:find(V, Dict) of
+              {ok, #meta_var{type = T}} -> T;
+              error                     -> undefined
+            end,
+  MetaVar = #meta_var{type = NewType, line = L},
+  case {OldType, NewType} of
+    {undefined, _} ->
+      {[], dict:store(V, MetaVar, Dict)};
+    {T1, T1} ->
+      {[], Dict};
+    {T1, T2} ->
+      case type_internal:type_equivalent(T1, T2) of
+        true ->
+          {[], Dict};
+        false ->
+          {[{L, ?TYPE_MSG, {inferred_conflicting_types, V, T1, T2}}], Dict}
+      end
+  end.
+
 %% Returns {Type, Scopes}
 update_local(S=#scopes{local = CurrLS, locals = LsDict}, {var, L, V}, Type) ->
   FoundLS = recursive_ls_lookup(V, CurrLS, LsDict),
-  MetaVar = #meta_var{type = Type, line = L},
-  FoundLS1 = FoundLS#local_scope{vars =
-                                   dict:store(V
-                                             , MetaVar
-                                             , FoundLS#local_scope.vars)},
+  {Errors, NewVars} =
+    assert_and_update_type(V, L, Type, FoundLS#local_scope.vars),
+  FoundLS1 = FoundLS#local_scope{vars = NewVars},
   LsDict0 = dict:store(CurrLS#local_scope.name, CurrLS, LsDict),
   LsDict1 = dict:store(FoundLS#local_scope.name, FoundLS1, LsDict0),
   S1 = S#scopes{local = find_ls(CurrLS#local_scope.name, LsDict1),
@@ -1412,12 +1453,12 @@ update_local(S=#scopes{local = CurrLS, locals = LsDict}, {var, L, V}, Type) ->
       debug_log(S, "\t~p :: ?~n", [V]),
       {Type,
        S1#scopes{errors =
-                  S#scopes.errors ++
+                  S#scopes.errors ++ Errors ++
                   [{L, ?TYPE_MSG, {can_not_infer_type, V}}
                    || type_defined_in_local(V, S)]}};
     _ ->
       debug_log(S, "\t~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
-      {Type, S1}
+      {Type, S1#scopes{errors = Errors ++ S1#scopes.errors}}
   end.
 
 %% Special case to store the type for each expression/record field

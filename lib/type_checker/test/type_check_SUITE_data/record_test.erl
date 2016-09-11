@@ -20,5 +20,6 @@ my_last_name() ->
   "Amir Moulavi".
 
 test_record() ->
-  record(#my_record{id = 13, name = "amir", tel = #telephone{area_code = 97
-                                                            , number = 254245}}).
+  record(#my_record{id = 13, name = "amir"
+                   , tel = #telephone{area_code = 97
+                                     , number = 254245}}).

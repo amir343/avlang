@@ -2091,6 +2091,7 @@ expr({atom,Line,A}, _Vt, St) ->
     {[],keyword_warning(Line, A, St)};
 expr({string,_Line,_S}, _Vt, St) -> {[],St};
 expr({nil,_Line}, _Vt, St) -> {[],St};
+expr({type_anno,_,_,_}, _Vt, St) -> {[], St};
 expr({cons,_Line,H,T}, Vt, St) ->
     expr_list([H,T], Vt, St);
 expr({lc,_Line,E,Qs}, Vt, St) ->
