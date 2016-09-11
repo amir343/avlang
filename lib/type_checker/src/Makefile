@@ -41,6 +41,7 @@ RELSYSDIR = $(RELEASE_PATH)/lib/type_checker-$(VSN)
 # Target Specs
 # ----------------------------------------------------
 MODULES =  \
+	state_dl \
 	terl_any \
 	terl_boolean \
 	terl_binary \
@@ -125,6 +126,7 @@ release_docs_spec:
 # Dependencies -- alphabetically, please
 # ----------------------------------------------------
 
+$(EBIN)/state_dl.beam: type_checker_state.hrl
 $(EBIN)/terl_any.beam: type_macros.hrl
 $(EBIN)/terl_boolean.beam: type_macros.hrl
 $(EBIN)/terl_binary.beam: type_macros.hrl
