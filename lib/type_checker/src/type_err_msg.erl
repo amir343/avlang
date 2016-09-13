@@ -1,7 +1,8 @@
 -module(type_err_msg).
 
 -export([ format_error/1
-        , pp_type/1]).
+        , pp_type/1
+        ]).
 
 format_error(T) ->
   try
