@@ -20,27 +20,28 @@
 
 -module(type_check).
 
+%%------------------------------------------------------------------------------
+
 -export([ module/3
         ]).
 
+%%------------------------------------------------------------------------------
 
 -include("type_checker_state.hrl").
 
--define(TYPE_MSG, type_err_msg).
-
 %%------------------------------------------------------------------------------
 
-module(Forms, FileName, Opts0) ->
-  Opts1 = type_check_compiler_opts:options_of_interest(Opts0),
-  ErlangTypes = bootstrap_erlang_types(),
-  ErlangGuardTypes = erlang_guard_signature(),
+module(Forms, FileName, Opts) ->
+  St0 =
+    state_dl:compiler_opts(#state{}
+                          , type_check_compiler_opts:options_of_interest(Opts)),
+  St1 = state_dl:erlang_types(St0, bootstrap_erlang_types()),
+  St2 = state_dl:guard_types(St1, erlang_guard_signature()),
   run_passes(standard_passes(),
              Forms,
              FileName,
              [],
-             #state{ erlang_types = ErlangTypes
-                   , guard_types = ErlangGuardTypes
-                   , compiler_opts = Opts1}).
+             St2).
 
 bootstrap_erlang_types() ->
   PrivDir = code:lib_dir(type_checker, priv),
@@ -129,13 +130,13 @@ standard_passes() ->
 type_lint(Forms, FileName, St0) ->
   St1 = collect_types(Forms, St0),
   debug_log(St1, "~p~n", [Forms]),
-  check_consistency_type_cons(St1, FileName),
-  check_consistency_fun_sigs(St1, FileName),
-  St2 = no_remote_fun_sig_declared(St1),
-  Ws1 = check_unsued_user_defined_types(FileName, St2),
-  check_undefined_types(FileName, St2),
-  match_fun_sig_with_declared_fun(St2),
-  St3 = build_record_type_with_declared_record(St2),
+  St2 = check_consistency_type_cons(St1),
+  check_consistency_fun_sigs(St2, FileName),
+  St3 = no_remote_fun_sig_declared(St2),
+  Ws1 = check_unsued_user_defined_types(FileName, St3),
+  St4 = check_undefined_types(St3),
+  St5 = match_fun_sig_with_declared_fun(St4),
+  St6 = build_record_type_with_declared_record(St5),
   %% TODO: checks for generic types
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
@@ -144,7 +145,7 @@ type_lint(Forms, FileName, St0) ->
                    , gb_sets:to_list(gb_sets:from_list(Errs0))),
 
   case length(Errs) of
-    0 -> {ok, Ws1, St3};
+    0 -> {ok, Ws1, St6};
     _ -> {error, [{FileName, Errs}], []}
   end.
 
@@ -183,20 +184,20 @@ collect_types([_ | Forms], St) ->
 collect_types([], St) ->
   St.
 
-insert_compiler_options(St=#state{compiler_opts = Opts}, Options) ->
+insert_compiler_options(St=#state{}, Options) ->
+  Opts = state_dl:compiler_opts(St),
   Opts1 = type_check_compiler_opts:options_of_interest(Options),
   Opts2 = gb_sets:to_list(gb_sets:from_list(Opts ++ Opts1)),
-  St#state{compiler_opts = Opts2}.
+  state_dl:compiler_opts(St, Opts2).
 
 %% Extract user defined types given at line L and associate each one with
 %% line L in the returned state.type_used_loc.
-extract_user_defined_types_with_locs(T, L, St) ->
+extract_user_defined_types_with_locs(T, L, St=#state{}) ->
   Ts = type_internal:extract_user_defined_types(T),
   Locs = generate_locs_for_types(Ts, L),
-  St#state{type_used =
-             gb_sets:union(gb_sets:from_list(Ts), St#state.type_used)
-          , type_used_loc = merge(Locs, St#state.type_used_loc)}.
-
+  TU = gb_sets:union(gb_sets:from_list(Ts), state_dl:type_used(St)),
+  St1 = state_dl:type_used(St, TU),
+  state_dl:type_used_loc(St1, merge(Locs, state_dl:type_used_loc(St1))).
 
 generate_locs_for_types(Ts, L) ->
   lists:foldl(fun (Tp, D) ->
@@ -209,22 +210,30 @@ merge(D1, D2) ->
              end, D1, D2).
 
 %% Check if a refered type is undefined in this module
-check_undefined_types(FileName, #state{ type_aliases = TA
-                                      , type_used = TU
-                                      , type_used_loc = TUL}) ->
-  [case dict:find(T, TA) of
-     {ok, _} -> ok;
-     _ ->
-       {ok, L} = dict:find(T, TUL),
-       Locs = gb_sets:to_list(gb_sets:from_list(L)),
-       throw([{FileName, [{L1, ?TYPE_MSG, {undefined_type, T}}]}
-              || L1 <-  Locs])
-   end
-   || T <- gb_sets:to_list(TU)].
+check_undefined_types(State=#state{}) ->
+  TA = state_dl:type_aliases(State),
+  TU = state_dl:type_used(State),
+  TUL = state_dl:type_used_loc(State),
+
+  Erros =
+    lists:foldl(fun(T, Acc) ->
+                    case dict:find(T, TA) of
+                      {ok, _} -> Acc;
+                      _ ->
+                        {ok, L} = dict:find(T, TUL),
+                        Locs = gb_sets:to_list(gb_sets:from_list(L)),
+                        Acc ++
+                          [{L1, ?TYPE_MSG, {undefined_type, T}} || L1 <- Locs]
+                    end
+                end, [], gb_sets:to_list(TU)),
+  state_dl:update_errors(State, Erros).
+
 
 %% Check if user defined types are used
-check_unsued_user_defined_types(FileName, #state{type_aliases = TA
-                                                , type_used = TU}) ->
+check_unsued_user_defined_types(FileName, State=#state{}) ->
+  TA = state_dl:type_aliases(State),
+  TU = state_dl:type_used(State),
+
   lists:flatten(
     [ case gb_sets:is_member(N, TU) of
         true  -> [];
@@ -237,165 +246,195 @@ check_unsued_user_defined_types(FileName, #state{type_aliases = TA
 
 %% Check that the declared funs and corresponding function signature has
 %% the same arity, otherwise, if missing or mismatch, error with proper message.
-match_fun_sig_with_declared_fun(#state{declared_fun = DF, fun_sigs = FS}) ->
-  [case V of
-     [_|_] = L -> [match_fun_sig0(L1, DF) || L1 <- L];
-     A         -> match_fun_sig0(A, DF)
-   end
-   || {_, V} <- dict:to_list(FS)].
+match_fun_sig_with_declared_fun(State=#state{}) ->
+  DF = state_dl:declared_fun(State),
+  FS = state_dl:fun_sigs(State),
+
+  Errors =
+    lists:foldl(fun({_, V}, Acc) ->
+                    case V of
+                      [_|_] = L -> Acc ++ [match_fun_sig0(L1, DF) || L1 <- L];
+                      A         -> [match_fun_sig0(A, DF) | Acc]
+                    end
+                end, [], dict:to_list(FS)),
+  %% filter out oks and keep error tuples
+  state_dl:update_errors(State, [E || {_, _, _} = E <- Errors]).
 
 match_fun_sig0({fun_sig, L2, N, _} = F, DF) ->
   SigAr = fun_arity(F),
   case dict:find(N, DF) of
     error ->
-      throw({error, L2, {no_fun_decl_found_for_sig, N, L2}});
+      {L2, ?TYPE_MSG, {no_fun_decl_found_for_sig, N, L2}};
     {ok, [_|_] = L} ->
       case length([E || {function, _, _, Ar, _} = E <- L, SigAr =:= Ar])
       of
         0 ->
-          throw({error, L2, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}});
+          {L2, ?TYPE_MSG, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}};
         1 ->
           ok;
         _ ->
-          throw({error, L2, {multi_match_fun_decl_for_fun_sig, N, L2}})
+          {L2, ?TYPE_MSG, {multi_match_fun_decl_for_fun_sig, N, L2}}
       end;
     {ok, {function, _, _, Ar, _}} ->
       case SigAr =:= Ar of
         false ->
-          throw({error, L2, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}});
+          {L2, ?TYPE_MSG, {no_matching_fun_decl_for_fun_sig, N, SigAr, L2}};
         true ->
           ok
       end
     end.
 
-build_record_type_with_declared_record(St=#state{record_types = RT
-                                                , records = Rs}) ->
-  NRT =
-    lists:map(fun({N, {record_type_def, L, _, T}}) ->
+build_record_type_with_declared_record(St=#state{}) ->
+  RT = state_dl:record_types(St),
+  Rs = state_dl:records(St),
+
+  {Errs, NRT} =
+    lists:foldl(fun({N, {record_type_def, L, _, T}}, {Errs, Mapped}) ->
                   case dict:find(N, Rs) of
                     {ok, RecDef} ->
-                      {N, merge_rec_def_with_type(N, L, RecDef, T)};
+                      M = merge_rec_def_with_type(N, L, RecDef, T),
+                      {Errs, [M | Mapped]};
                     error ->
-                      throw({error, L, {no_record_definition, N}})
+                      Err = [{L, ?TYPE_MSG, {no_record_definition, N}} | Errs],
+                      {Err, Mapped}
                   end
-              end, dict:to_list(RT)),
-  St#state{record_types = dict:from_list(NRT)}.
+              end, {[], []}, dict:to_list(RT)),
+  St1 = state_dl:record_types(St, dict:from_list(NRT)),
+  state_dl:update_errors(St1, Errs).
 
 merge_rec_def_with_type(N, L, RecDef, Ts) ->
   case length(RecDef) =:= length(Ts) of
     false ->
       throw({error, L, {none_matching_record_type, N}});
     true ->
-      lists:map(fun({{record_field, _, {atom, _, FN}}, T}) ->
-                    {FN, T}
-                end, lists:zip(RecDef, Ts))
+      M = lists:map(fun({{record_field, _, {atom, _, FN}}, T}) ->
+                        {FN, T}
+                    end, lists:zip(RecDef, Ts)),
+      {N, M}
   end.
 
-%% Adds a new function signature to state record or throws an exception if
+%% Adds a new function signature to state record or adds an error if
 %% this function signature is already defined.
-add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{fun_sigs = FS}) ->
+add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{}) ->
+  FS = state_dl:fun_sigs(St),
+
   case dict:find(N, FS) of
     {ok, Vs} ->
       Ar = fun_arity(F),
       case [V || V <- Vs, fun_arity(V) =:= Ar] of
         [{_, L1, _, _} | _] ->
-          throw({error, L2, {duplicate_fun_sig_decl, N, L1, L2}});
+          state_dl:update_errors(St, L2, {duplicate_fun_sig_decl, N, L1, L2});
         _ ->
-          St#state{fun_sigs = dict:append(N, F, FS)}
+          state_dl:fun_sigs(St, dict:append(N, F, FS))
       end;
     error ->
-      St#state{fun_sigs = dict:append(N, F, FS)}
+      state_dl:fun_sigs(St, dict:append(N, F, FS))
   end.
 
-%% Adds a new remote function signature to state record or throws
-%% an exception if this function signature is already defined.
-add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F
-                   , St=#state{remote_fun_sigs = FS}) ->
+%% Adds a new remote function signature to state record or adds
+%% an error if this function signature is already defined.
+add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F, St=#state{}) ->
+  FS = state_dl:remote_fun_sigs(St),
   Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
   case dict:find(Key, FS) of
     {ok, Vs} ->
       Ar = fun_arity(F),
       case [V || V <- Vs, fun_arity(V) =:= Ar] of
         [{_, L1, _, _} | _] ->
-          throw({error, L2, {duplicate_fun_sig_decl, M, N, L1, L2}});
+          state_dl:update_errors(St
+                                , L2
+                                , {duplicate_fun_sig_decl, M, N, L1, L2});
         _ ->
-          St#state{remote_fun_sigs = dict:append(Key, F, FS)}
+          state_dl:remote_fun_sigs(St, dict:append(Key, F, FS))
       end;
     error ->
-      St#state{remote_fun_sigs = dict:append(Key, F, FS)}
+      state_dl:remote_fun_sigs(St, dict:append(Key, F, FS))
   end.
 
-%% Adds a new type alias to state record or throws an exception if this
+%% Adds a new type alias to state record or adds an error if this
 %% type alias is already defined.
-add_type_alias({type_alias, L2, N, _} = F, St=#state{type_aliases = TA}) ->
+add_type_alias({type_alias, L2, N, _} = F, St=#state{}) ->
+  TA = state_dl:type_aliases(St),
   case dict:find(N, TA) of
     {ok, {_, L1, _, _}} ->
-      throw({error, L2, {duplicate_type_alias_decl, N, L1, L2}});
+      state_dl:update_errors(St, L2, {duplicate_type_alias_decl, N, L1, L2});
     error ->
-      St#state{type_aliases = dict:store(N, F, TA)}
+      state_dl:type_aliases(St, dict:store(N, F, TA))
   end.
 
-%% Adds a new type constructor to state record or throws an exception if this
+%% Adds a new type constructor to state record or adds an error if this
 %% type cons is already defined by another type cons or type alias.
-add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{ type_cons = TC
-                                                     , type_aliases = TA}) ->
+add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{}) ->
+  TC = state_dl:type_cons(St),
+  TA = state_dl:type_aliases(St),
   case dict:find(N, TC) of
     {ok, {_, L1, _, _, _}} ->
-      throw({error, L2, {duplicate_type_cons_decl, N, L1, L2}});
+      state_dl:update_errors(St, L2, {duplicate_type_cons_decl, N, L1, L2});
     error ->
       case dict:find(N, TA) of
         {ok, {_, L3, _, _, _}} ->
-          throw({error, L2, {duplicate_type_cons_decl, N, L2, L3}});
+          state_dl:update_errors(St, L2, {duplicate_type_cons_decl, N, L2, L3});
         error ->
-          St#state{type_cons = dict:store(N, F, TC)}
+          state_dl:type_cons(St, dict:store(N, F, TC))
       end
   end.
 
-add_record_type_def({record_type_def, L, N, _T} = R
-                   , St=#state{record_types = RT}) ->
+add_record_type_def({record_type_def, L, N, _T} = R, St=#state{}) ->
+  RT = state_dl:record_types(St),
   case dict:find(N, RT) of
     {ok, {_, L1, _, _}} ->
-      throw({error, L, {duplicate_record_type, N, L1, L}});
+      state_dl:update_errors(St, L, {duplicate_record_type, N, L1, L});
     error ->
-      St#state{record_types = dict:store(N, R, RT)}
+      state_dl:record_types(St, dict:store(N, R, RT))
   end.
 
-add_record_def({N, Def}, St=#state{records = Rs}) ->
-  St#state{records = dict:store(N, Def, Rs)}.
+add_record_def({N, Def}, St=#state{}) ->
+  Rs = state_dl:records(St),
+  state_dl:records(St, dict:store(N, Def, Rs)).
 
-add_declared_fun({function, _, N, _, _} = F, St=#state{declared_fun = DF}) ->
-  St#state{declared_fun = dict:append(N, F, DF)}.
+add_declared_fun({function, _, N, _, _} = F, St=#state{}) ->
+  DF = state_dl:declared_fun(St),
+  state_dl:declared_fun(St, dict:append(N, F, DF)).
 
-check_consistency_type_cons(#state{type_cons = TC}, FN) ->
-  lists:foreach(fun({_, E}) ->
-                    check_consistency_type_cons_lhs_rhs(E, FN),
-                    no_terl_type_used_lhs(E)
-                end, dict:to_list(TC)).
+check_consistency_type_cons(State=#state{}) ->
+  TC = state_dl:type_cons(State),
+  lists:foldl(fun({_, E}, St) ->
+                  St1 = check_consistency_type_cons_lhs_rhs(E, St),
+                  no_terl_type_used_lhs(E, St1)
+              end, State, dict:to_list(TC)).
 
-
-no_remote_fun_sig_declared(S=#state{remote_fun_sigs = FSigs, errors = Errs}) ->
+no_remote_fun_sig_declared(St=#state{remote_fun_sigs = FSigs}) ->
+  FSigs = state_dl:remote_fun_sigs(St),
   Errors = [{L, ?TYPE_MSG, {no_remote_fun_sig_allowed, M, N}} ||
              {_, RFS} <- dict:to_list(FSigs),
              {fun_remote_sig, L, M, N, _} <- RFS],
-  S#state{errors = Errs ++ Errors}.
+  state_dl:update_errors(St, Errors).
 
 %% All fun sigs clauses must have same arity
-check_consistency_fun_sigs(#state{fun_sigs = FS}, _FN) ->
- [check_consistency_fun_sigs0(Sig) || {_, Sigs} <- dict:to_list(FS),
-                                      Sig <- Sigs].
+check_consistency_fun_sigs(State=#state{fun_sigs = FS}, _FN) ->
+  FS = state_dl:fun_sigs(State),
+  lists:foldl(fun({_, Sigs}, St) ->
+                  check_consistency_fun_sigs0(St, Sigs)
+              end, State, dict:to_list(FS)).
 
-check_consistency_fun_sigs0({fun_sig, L, N, Cls}) ->
+check_consistency_fun_sigs0(State=#state{}, Sigs) ->
+  lists:foldl(fun(Sig, St) ->
+                  check_consistency_fun_sig(St, Sig)
+              end, State, Sigs).
+
+check_consistency_fun_sig(State=#state{}, {fun_sig, L, N, Cls}) ->
   SetArity = gb_sets:from_list([fun_arity(Cl) || Cl <- Cls]),
   case gb_sets:size(SetArity) of
     1 ->
-      ok;
+      State;
     _ ->
-      throw({error, L, {fun_sig_clause_arity_not_match, N}})
+      state_dl:update_errors(State, L, {fun_sig_clause_arity_not_match, N})
   end.
 
 %% Check if that all defined generic type parameters in the left hand side of
 %% type constructor is used in the right hand side and vice versa
-check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
+check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}
+                                   , State=#state{}) ->
   GTI0 = lists:flatten([type_internal:extract_generic_types(I) || I <- Is]),
   GTO0 = type_internal:extract_generic_types(O),
   GTI1 = gb_sets:to_list(gb_sets:from_list(GTI0)),
@@ -403,24 +442,24 @@ check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}, FN) ->
   NotUsedRhs = GTI1 -- GTO1,
   NotUsedLhs = GTO1 -- GTI1,
   case NotUsedLhs =:= NotUsedRhs of
-    true -> ok;
+    true -> State;
     false ->
-      Errs = [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}]}
+      Errs = [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}
        || length(NotUsedLhs) =/= 0] ++
-        [{FN, [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}]}
+        [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}
          || length(NotUsedRhs) =/= 0],
-     throw(Errs)
+     state_dl:update_errors(State, Errs)
   end.
 
-no_terl_type_used_lhs({type_cons, L, _N, Is, _O}) ->
+no_terl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
   TI0 = lists:flatten([type_internal:type_terminals(I) || I <- Is]),
   TI1 = lists:filter(fun({Tag, _}) -> Tag =/= terl_generic_type end, TI0),
   case length(TI1) of
     0 ->
-      ok;
+      State;
     _ ->
       TI2 = lists:map(fun(E) -> element(2, E) end, TI1),
-      throw({error, L, {tc_only_generic_type_lhs, TI2}})
+      state_dl:update_errors(State, L, {tc_only_generic_type_lhs, TI2})
   end.
 
 fun_arity({fun_sig, _, _, [{fun_type, I, _} | _]}) ->
@@ -435,11 +474,13 @@ fun_arity([{fun_type, I, _} | _]) ->
 
 %%%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-type_check0(Forms, FileName, State=#state{compiler_opts = Opts}) ->
-  Scopes0 = #scopes{state = State},
+type_check0(Forms, FileName, State=#state{}) ->
+  Opts = state_dl:compiler_opts(State),
+  Scopes0 = state_dl:scopes(State),
 
   S = type_check_loop(1, Forms, Scopes0, -1),
-  #scopes{errors = Errs0, locals = LS} = S,
+  Errs0 = state_dl:errors(S),
+  LS = state_dl:locals(S),
 
   case type_check_compiler_opts:dump_local_scopes(Opts) of
     true -> dump_local_scopes(LS);
@@ -461,7 +502,8 @@ type_check0(Forms, FileName, State=#state{compiler_opts = Opts}) ->
 %% TODO: how many iterations until we give up?
 type_check_loop(10, _, S, _) ->
   S;
-type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
+type_check_loop(PassN, Forms, Scopes0=#scopes{}, PUndefs) ->
+  FP = state_dl:first_pass(Scopes0),
   debug_log(Scopes0,
             ">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
 
@@ -477,13 +519,15 @@ type_check_loop(PassN, Forms, Scopes0=#scopes{first_pass = FP}, PUndefs) ->
                 end, dict:to_list(Scopes1#scopes.global)),
 
   UndefinedTypes = count_undefined(Scopes1),
-  NErros = length(Scopes1#scopes.errors),
+  NErros = length(state_dl:errors(Scopes1)),
   Undefs = UndefinedTypes + NErros,
 
   debug_log(Scopes0, "Number of undefined types: ~p~n", [Undefs]),
   debug_log(Scopes0, "Number of errors: ~p~n", [NErros]),
 
-  Scopes2 = Scopes1#scopes{first_pass = false, errors = []},
+  Scopes11 = state_dl:first_pass(Scopes1, false),
+  Scopes2 = state_dl:errors(Scopes11, []),
+
   case Undefs of
     0 -> Scopes1;    %% All types could be inferred
     _ ->
@@ -506,17 +550,21 @@ count_undefined(S) ->
   count_undefined_local_scopes(S)
     + count_undefined_global_scope(S).
 
-count_undefined_local_scopes(#scopes{locals = LS}) ->
+count_undefined_local_scopes(Scopes=#scopes{}) ->
+  LS = state_dl:locals(Scopes),
   lists:foldl(fun({_, L}, Cnt) ->
                   Cnt + count_undefined_local_scope(L)
               end, 0, dict:to_list(LS)).
 
-count_undefined_local_scope(#local_scope{vars = L, type = Type}) ->
+count_undefined_local_scope(LS=#local_scope{}) ->
+  L = state_dl:vars(LS),
+  Type = state_dl:type(LS),
   length([1 || {_, #meta_var{type = T}} <- dict:to_list(L),
           T =:= undefined]) +
     length(type_internal:extract_type_terminals(undefined, Type)).
 
-count_undefined_global_scope(#scopes{global = GS}) ->
+count_undefined_global_scope(Scopes=#scopes{}) ->
+  GS = state_dl:global(Scopes),
   lists:foldl(
     fun({_, FTypes}, Cnt) ->
         Ts = [FT1 || FT <- FTypes, FT1 <- FT],
@@ -562,9 +610,10 @@ match_clauses_with_sig(N, A, Cls, Scopes) ->
       match_clauses_with_sig0(Cls, FSs, [], Scopes)
   end.
 
-match_clauses_with_ftype(Cls, L, Scopes=#scopes{local = LS}) ->
-  Scopes1 = Scopes#scopes{local = LS#local_scope{last_ftype = undefined}},
-  case LS#local_scope.last_ftype of
+match_clauses_with_ftype(Cls, L, Scopes=#scopes{}) ->
+  LS = state_dl:local(Scopes),
+  Scopes1 = state_dl:local(Scopes, state_dl:last_ftype(LS, undefined)),
+  case state_dl:last_ftype(LS) of
     undefined ->
       {lists:map(fun(E) -> {E, undefined} end, Cls), Scopes1};
     FSs0 when is_list(FSs0) ->
@@ -655,7 +704,7 @@ infer_function_clause(NAL, Inferred, Declared, S=#scopes{}) ->
       Err =
         {L, ?TYPE_MSG,
          {declared_inferred_fun_type_do_not_match, N, A, Declared, Inferred}},
-      {Inferred, S#scopes{errors = S#scopes.errors ++ [Err]}}
+      {Inferred, state_dl:update_errors(S, [Err])}
   end.
 
 validate_fun_type(NAL, FTypes, Scopes) ->
@@ -670,20 +719,22 @@ validate_fun_type0(NAL, FType, S=#scopes{}) ->
     _ ->
       {N, A, L} = NAL,
       Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
-      S#scopes{errors = S#scopes.errors ++ [Err]}
+      state_dl:update_errors(S, [Err])
   end.
 
-type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
+type_check_clause(FSig, Cls, S=#scopes{}) ->
+  FP = state_dl:first_pass(S),
+  LS = state_dl:local(S),
   case FP of
     true ->
       {Res, S1} = type_check_clause0(FSig, Cls, S),
       S2 = update_undefined(S1),
       {Res, S2};
     false ->
-      UnDefs0 = LS#local_scope.last_nr_undefined,
+      UnDefs0 = state_dl:last_nr_undefined(LS),
       case UnDefs0 of
         0 ->
-          {LS#local_scope.type, S};
+          {state_dl:type(LS), S};
         _ ->
           {Res, S1} = type_check_clause0(FSig, Cls, S),
           S2 = update_undefined(S1),
@@ -694,9 +745,10 @@ type_check_clause(FSig, Cls, S=#scopes{first_pass = FP, local = LS}) ->
 %% Update the number of undefined types in local scope
 %% to save cost of calculation to one time so later passes
 %% won't calculate this if it's already 0.
-update_undefined(S0=#scopes{local = L}) ->
+update_undefined(S0=#scopes{}) ->
+  L = state_dl:local(S0),
   InnerScopes =
-    [find_ls(In, S0) || In <- gb_sets:to_list(L#local_scope.inner_scopes)],
+    [find_ls(In, S0) || In <- gb_sets:to_list(state_dl:inner_scopes(L))],
   UnDefsInnerScopes =
     lists:sum([count_undefined_local_scope(IS) || IS <- InnerScopes]),
   UnDefs1 = count_undefined_local_scope(L),
@@ -744,13 +796,13 @@ record_type_elimination(_, _) ->
   [].
 
 type_check_clause_guard(Gs, Scopes0=#scopes{}) ->
-  Scopes1 = Scopes0#scopes{fun_lookup = guard_fun_lookup_priorities()},
+  Scopes1 = state_dl:fun_lookup(Scopes0, guard_fun_lookup_priorities()),
   GSeqs = [G1 || G0 <- Gs, G1 <- G0],
   Scopes2 = lists:foldl(fun(G, S0) ->
                        {TG, S1} = type_check_expr(G, S0),
                        assert_guard_type(G, TG, S1)
                    end, Scopes1, GSeqs),
-  Scopes2#scopes{fun_lookup = standard_fun_lookup_priorities()}.
+  state_dl:fun_lookup(Scopes2, standard_fun_lookup_priorities()).
 
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, Scopes0) ->
@@ -803,7 +855,8 @@ type_check_expr(E, Scopes0) ->
   type_of(E, Scopes0).
 
 reset_last_ftype(Scopes=#scopes{local = LS}) ->
-  Scopes#scopes{local = LS#local_scope{last_ftype = undefined}}.
+  LS = state_dl:local(Scopes),
+  state_dl:local(Scopes, state_dl:last_ftype(LS, undefined)).
 
 type_of_lhs({bin, _, _} = Bin, Scopes0) ->
   {_, Scopes1} = type_of(Bin, Scopes0),
@@ -811,16 +864,17 @@ type_of_lhs({bin, _, _} = Bin, Scopes0) ->
 type_of_lhs(_, Scopes) ->
   Scopes.
 
-check_for_fun_type(Type, Scopes=#scopes{local = L}) ->
+check_for_fun_type(Type, Scopes=#scopes{}) ->
+  L = state_dl:local(Scopes),
   case Type of
     FTs when is_list(FTs) ->
-      Scopes#scopes{local = L#local_scope{last_ftype = FTs}};
+      state_dl:local(Scopes, state_dl:last_ftype(L, FTs));
     {fun_type, _, _} ->
-      Scopes#scopes{local = L#local_scope{last_ftype = Type}};
+      state_dl:local(Scopes, state_dl:last_ftype(L, Type));
     {untyped_fun, _, _} ->
-      Scopes#scopes{local = L#local_scope{last_ftype = Type}};
+      state_dl:local(Scopes, state_dl:last_ftype(L, Type));
     _ ->
-      Scopes#scopes{local = L#local_scope{last_ftype = undefined}}
+      state_dl:local(Scopes, state_dl:last_ftype(L, undefined))
   end.
 
 %% Insert argument types into local scope
@@ -834,20 +888,22 @@ insert_args({var, L, Var}, Type, S=#scopes{}) ->
     {_,         _}         -> insert_args0(Var, L, Type, S)
   end.
 
-insert_args0(Var, L, Type, S) ->
-  LS = (S#scopes.local),
+insert_args0(Var, L, Type, S=#scopes{}) ->
+  LS = state_dl:local(S),
   debug_log(S, "\t~p :: ~s~n", [Var, ?TYPE_MSG:pp_type(Type)]),
-  MetaVar = #meta_var{type = Type, line = L},
-  S#scopes{local =
-             LS#local_scope{vars =
-                              dict:store(Var, MetaVar, LS#local_scope.vars)}}.
+  MetaVar = state_dl:meta_var(Type, L),
+  state_dl:local(S,
+                 state_dl:vars(LS,
+                               dict:store(Var, MetaVar, state_dl:vars(LS)))).
 
 %% Generate type error for undefined types in local scope
-check_local_scope(S=#scopes{local = #local_scope{vars = Vars}}) ->
+check_local_scope(S=#scopes{}) ->
+  LS = state_dl:local(S),
+  Vars = state_dl:vars(LS),
   Undefs = [{L, ?TYPE_MSG, {can_not_infer_type, V}}
             || {V, #meta_var{type = T, line = L}}
                  <- dict:to_list(Vars), T =:= undefined],
-  S#scopes{errors = S#scopes.errors ++ Undefs}.
+  state_dl:update_errors(S, Undefs).
 
 
 type_of({nil, _}, S) ->
@@ -905,7 +961,6 @@ type_of({tuple, L, Es}, Scopes0) ->
                                   {Ts ++ [T], Scopes1}
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
-
 
 type_of({'fun', L, {clauses, [{clause, _, Args, _, _} | _] = Cls}}, Scopes0) ->
   {ClauseSig, Scopes1} = match_clauses_with_ftype(Cls, L, Scopes0),
@@ -972,7 +1027,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
             lists:flatten(
               [generate_error_for_call(N, Arity, L, NonMatch)
                || {_, NonMatch, _} <- Res]),
-          {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ Errs}}
+          {undefined, state_dl:update_errors(Scopes3, Errs)}
       end;
     1 ->
       {fun_type, _, O} = element(3, hd(Matches)),
@@ -980,7 +1035,7 @@ type_of({call, L, NN, Args}, Scopes0) ->
     _ ->
       MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
       Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
-      {undefined, Scopes3#scopes{errors = Scopes3#scopes.errors ++ [Err]}}
+      {undefined, state_dl:update_errors(Scopes3, [Err])}
   end;
 
 type_of({'case', _, E, Cls}, Scopes0) ->
@@ -1000,8 +1055,8 @@ type_of({'case', _, E, Cls}, Scopes0) ->
                     S3 = sync_ls(Name, S2),
                     {Ind + 1, Ts ++ [TC], S3}
                 end, {0, [], Scopes2}, Cls),
-  Tlcs = find_lcs(TCls),
-  {Tlcs, Scopes3};
+  Tlub = find_lub(TCls),
+  {Tlub, Scopes3};
 
 type_of({'if', _, Cls}, Scopes0) ->
   {_, TCls, Scopes1} =
@@ -1013,8 +1068,8 @@ type_of({'if', _, Cls}, Scopes0) ->
                     S3 = sync_ls(Name, S2),
                     {Ind + 1, Ts ++ [TC], S3}
                 end, {0, [], Scopes0}, Cls),
-  Tlcs = find_lcs(TCls),
-  {Tlcs, Scopes1};
+  Tlub = find_lub(TCls),
+  {Tlub, Scopes1};
 
 type_of({generate, L, P, E}, Scopes0) ->
   {TE, Scopes1} = type_of(E, Scopes0),
@@ -1077,16 +1132,18 @@ type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, Scopes0) ->
     case terl_binary:type_specifier_list(TSLs) of
       [T] -> {T, Scopes0};
       Ts   ->
-        {undefined, update_errors( Scopes0
-                                 , L
-                                 , {bin_segment_conflicting_types, Var, Ts})}
+        {undefined,
+         state_dl:update_errors( Scopes0
+                               , L
+                               , {bin_segment_conflicting_types, Var, Ts})}
     end,
   update_local(Scopes1, V, TSL);
 
 type_of({bin_element, _, _, _, _}, Scopes0) ->
  {{terl_type, 'Integer'}, Scopes0};
 
-type_of({record, L, N, Fs}, Scopes0=#scopes{state = St}) ->
+type_of({record, L, N, Fs}, Scopes0=#scopes{}) ->
+  St = state_dl:state(Scopes0),
   TN = type_internal:find_record_type(N, St),
   Scopes1 = assert_found_record_type(N, TN, L, Scopes0),
   Scopes2 =
@@ -1096,7 +1153,8 @@ type_of({record, L, N, Fs}, Scopes0=#scopes{state = St}) ->
                 end, Scopes1, Fs),
   {{record_type, N}, Scopes2};
 
-type_of({record_field, L, V, N, {atom,_, F}}, Scopes0=#scopes{state = St}) ->
+type_of({record_field, L, V, N, {atom,_, F}}, Scopes0=#scopes{}) ->
+  St = state_dl:state(Scopes0),
   {TV, Scopes1} = type_of(V, Scopes0),
   {_, Scopes2} = update_local(Scopes1, V, TV),
   Scopes3 = assert_type_equality(V, L, {record_type, N}, TV, Scopes2),
@@ -1134,7 +1192,7 @@ eliminate_based_on_clauses(E, Cls, Scopes0) ->
                                     end, VTDict, VT0)
                     end, dict:new(), Cls),
   lists:foldl(fun({K, Vs}, S0) ->
-                  T = find_lcs(Vs),
+                  T = find_lub(Vs),
                   update_local(S0, [{K, T}])
               end, Scopes0, dict:to_list(VTsDict)).
 
@@ -1168,9 +1226,9 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   Scopes5 = update_type_in_local_scope(TLastCl, Scopes4),
   {TLastCl, check_local_scope(Scopes5)}.
 
-find_lcs(TCls) ->
+find_lub(TCls) ->
   lists:foldl(fun(T1, T2) ->
-                  type_internal:lcs(T1, T2)
+                  type_internal:lub(T1, T2)
               end, nothing, TCls).
 
 create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
@@ -1230,8 +1288,10 @@ dispatch_result(Res) ->
 %% Starting from the most inner local scope, tries to find the type
 %% for a variable recusively to outer scopes until it finds a type.
 %% Returns the first found type.
-recursive_lookup(Var, S=#scopes{locals = LS},
-                 #local_scope{vars = Vars, outer_scope = OS}) ->
+recursive_lookup(Var, S=#scopes{}, LocalS=#local_scope{}) ->
+  LS = state_dl:locals(S),
+  Vars = state_dl:vars(LocalS),
+  OS = state_dl:outer_scope(LocalS),
   case dict:find(Var, Vars) of
     {ok, #meta_var{type = T}} -> T;
     error ->
@@ -1253,9 +1313,9 @@ recursive_ls_lookup(Var, LS, Locals) ->
       Other
   end.
 
-recursive_ls_lookup0(Var,
-                 LS=#local_scope{vars = Vars, outer_scope = OS},
-                   Locals) ->
+recursive_ls_lookup0(Var, LS=#local_scope{}, Locals) ->
+  Vars = state_dl:vars(LS),
+  OS = state_dl:outer_scope(LS),
   case dict:find(Var, Vars) of
     {ok, _} ->
       LS;
@@ -1275,8 +1335,9 @@ recursive_ls_lookup0(Var,
   end.
 
 %% Only look in current local scope
-non_recursive_lookup(Var, #scopes{local = LS}) ->
-  Vars = LS#local_scope.vars,
+non_recursive_lookup(Var, Scopes=#scopes{}) ->
+  LS = state_dl:local(Scopes),
+  Vars = state_dl:vars(LS),
   case dict:find(Var, Vars) of
     {ok, #meta_var{type = T}} -> T;
     error -> undefined
@@ -1311,10 +1372,10 @@ assert_found_vt(L, S=#scopes{}, VTs) ->
                          | Errs0]
                     end
                 end, [], VTs),
-  S#scopes{errors = Errs ++ S#scopes.errors}.
+  state_dl:update_errors(S, Errs).
 
-assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{errors = Errs}) ->
-  S#scopes{errors = Errs ++ [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]};
+assert_found_fun_type(undefined, L, NN, Ar, S=#scopes{}) ->
+  state_dl:update_errors(S, [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]);
 assert_found_fun_type(_, _, _, _, S) ->
   S.
 
@@ -1323,13 +1384,13 @@ assert_binary_type(Expr, T, L, Scopes0) ->
     {terl_type, 'Binary'} ->
       Scopes0;
     TWrong ->
-      update_errors(Scopes0, L, {expected_binary_type, Expr, TWrong})
+      state_dl:update_errors(Scopes0, L, {expected_binary_type, Expr, TWrong})
   end.
 
 assert_found_record_type(N, T, L, Scopes=#scopes{}) ->
   case T of
     undefined ->
-      update_errors(Scopes, L, {record_type_not_found, N});
+      state_dl:update_errors(Scopes, L, {record_type_not_found, N});
     _ ->
       Scopes
   end.
@@ -1339,7 +1400,9 @@ assert_record_field_type_equality(N, L, F, TF, TV, Scopes0=#scopes{}) ->
     true ->
       Scopes0;
     false ->
-      update_errors(Scopes0, L, {wrong_record_field_type, N, F, TF, TV})
+      state_dl:update_errors(Scopes0,
+                             L,
+                             {wrong_record_field_type, N, F, TF, TV})
   end.
 
 assert_guard_type(G, T, Scopes=#scopes{}) ->
@@ -1347,7 +1410,9 @@ assert_guard_type(G, T, Scopes=#scopes{}) ->
     {terl_type, 'Boolean'} ->
       Scopes;
     WrongType ->
-      update_errors(Scopes, element(2, G), {wrong_guard_type, G, WrongType})
+      state_dl:update_errors(Scopes,
+                             element(2, G),
+                             {wrong_guard_type, G, WrongType})
   end.
 
 assert_list_validity(TH, TT) ->
@@ -1357,7 +1422,7 @@ assert_list_validity(TH, TT) ->
     {_, nothing}            -> {list_type, TH};
     {{terl_type, 'Any'}, _} -> {list_type, TT};
     {T1, T2} ->
-      {list_type, type_internal:lcs(T1, T2)}
+      {list_type, type_internal:lub(T1, T2)}
   end.
 
 assert_tuple_validity(TES, _L) ->
@@ -1378,8 +1443,9 @@ assert_type_equality(Var, L, Declared, Inferred, S=#scopes{}) ->
       case type_internal:type_equivalent(T, Declared) of
         true -> S;
         false ->
-          update_errors(S, L,
-                {declared_inferred_not_match, Var, Declared, Inferred})
+          state_dl:update_errors(S, L,
+                                 {declared_inferred_not_match
+                                 , Var, Declared, Inferred})
       end
   end.
 
@@ -1388,7 +1454,7 @@ assert_operator_validity(Res, Op, TL, TR, L, Scopes=#scopes{}) ->
   case Res of
     InvalidOp ->
       {undefined,
-       update_errors(Scopes, L, {invalid_operator, Op, TL, TR})};
+       state_dl:update_errors(Scopes, L, {invalid_operator, Op, TL, TR})};
     R ->
       {R, Scopes}
   end.
@@ -1398,13 +1464,14 @@ assert_operator_validity(Res, Op, TR, L, Scopes=#scopes{}) ->
   case Res of
     InvalidOp ->
       {undefined,
-       update_errors(Scopes, L, {invalid_operator, Op, TR})};
+       state_dl:update_errors(Scopes, L, {invalid_operator, Op, TR})};
     R ->
       {R, Scopes}
   end.
 
 %% This is to avoid same variables errored multiple places
-type_defined_in_local(Var, S=#scopes{local = LS}) ->
+type_defined_in_local(Var, S=#scopes{}) ->
+  LS = state_dl:local(S),
   case recursive_lookup(Var, S, LS) of
     undefined -> false;
     _         -> true
@@ -1422,7 +1489,7 @@ assert_and_update_type(V, L, NewType, Dict) ->
               {ok, #meta_var{type = T}} -> T;
               error                     -> undefined
             end,
-  MetaVar = #meta_var{type = NewType, line = L},
+  MetaVar = state_dl:meta_var(NewType, L),
   case {OldType, NewType} of
     {undefined, _} ->
       {[], dict:store(V, MetaVar, Dict)};
@@ -1438,41 +1505,43 @@ assert_and_update_type(V, L, NewType, Dict) ->
   end.
 
 %% Returns {Type, Scopes}
-update_local(S=#scopes{local = CurrLS, locals = LsDict}, {var, L, V}, Type) ->
+update_local(S=#scopes{}, {var, L, V}, Type) ->
+  CurrLS = state_dl:local(S),
+  LsDict = state_dl:locals(S),
   FoundLS = recursive_ls_lookup(V, CurrLS, LsDict),
   {Errors, NewVars} =
-    assert_and_update_type(V, L, Type, FoundLS#local_scope.vars),
-  FoundLS1 = FoundLS#local_scope{vars = NewVars},
-  LsDict0 = dict:store(CurrLS#local_scope.name, CurrLS, LsDict),
-  LsDict1 = dict:store(FoundLS#local_scope.name, FoundLS1, LsDict0),
-  S1 = S#scopes{local = find_ls(CurrLS#local_scope.name, LsDict1),
-               locals = LsDict1},
+    assert_and_update_type(V, L, Type, state_dl:vars(FoundLS)),
+  FoundLS1 = state_dl:vars(FoundLS, NewVars),
+  LsDict0 = dict:store(state_dl:local_scope_name(CurrLS), CurrLS, LsDict),
+  LsDict1 = dict:store(state_dl:local_scope_name(FoundLS), FoundLS1, LsDict0),
+  S1 = state_dl:local(S, find_ls(state_dl:local_scope_name(CurrLS), LsDict1)),
+  S2 = state_dl:locals(S1, LsDict1),
 
   case Type of
     undefined ->
       debug_log(S, "\t~p :: ?~n", [V]),
       {Type,
-       S1#scopes{errors =
-                  S#scopes.errors ++ Errors ++
-                  [{L, ?TYPE_MSG, {can_not_infer_type, V}}
-                   || type_defined_in_local(V, S)]}};
+       state_dl:update_errors
+         (S2, Errors ++
+            [{L,
+              ?TYPE_MSG,
+              {can_not_infer_type, V}} || type_defined_in_local(V, S)])};
     _ ->
       debug_log(S, "\t~p :: ~s~n", [V, ?TYPE_MSG:pp_type(Type)]),
-      {Type, S1#scopes{errors = Errors ++ S1#scopes.errors}}
+      {Type, state_dl:update_errors(S2, Errors)}
   end.
 
 %% Special case to store the type for each expression/record field
 %% that is identified with its line number
 update_local(S=#scopes{}, Name, L, Type) ->
   Key = Name ++ " at line " ++ integer_to_list(L),
-  MetaVar = #meta_var{type = Type, line = L},
+  MetaVar = state_dl:meta_var(Type, L),
 
-  LS = (S#scopes.local),
-  S1 = S#scopes{local =
-                  LS#local_scope{vars =
-                                   dict:store(Key
+  LS = state_dl:local(S),
+  S1 = state_dl:local(S,
+                  state_dl:vars(LS, dict:store(Key
                                              , MetaVar
-                                             , LS#local_scope.vars)}},
+                                             , state_dl:vars(LS)))),
   case Type of
     undefined ->
       debug_log(S, "\t~s @ ~p :: ?~n", [Name, L]),
@@ -1482,15 +1551,17 @@ update_local(S=#scopes{}, Name, L, Type) ->
   end.
 
 
-update_global(S=#scopes{global = GS}, N, Ar, FTypes) ->
+update_global(S=#scopes{}, N, Ar, FTypes) ->
+  GS = state_dl:global(S),
   FsExceptN = case dict:find(N, GS) of
                  {ok, FLists} ->
                    [FList || FList <- FLists, fun_arity(hd(FList)) =/= Ar];
                  error -> []
                end,
-  S#scopes{global = dict:store(N, FsExceptN ++ [FTypes], GS)}.
+  state_dl:global(S, dict:store(N, FsExceptN ++ [FTypes], GS)).
 
-find_fun_type_in_global(N, Ar, #scopes{global = GS}) ->
+find_fun_type_in_global(N, Ar, S=#scopes{}) ->
+  GS = state_dl:global(S),
   case dict:find(N, GS) of
     {ok, FList} ->
       lists:flatten(
@@ -1498,8 +1569,9 @@ find_fun_type_in_global(N, Ar, #scopes{global = GS}) ->
     error -> []
   end.
 
-find_fun_type_in_local(N, Ar, #scopes{local = LS}) ->
-  case dict:find(N, LS#local_scope.vars) of
+find_fun_type_in_local(N, Ar, S=#scopes{local = LS}) ->
+  LS = state_dl:local(S),
+  case dict:find(N, state_dl:vars(LS)) of
     {ok, #meta_var{type = FList}} ->
       case lists:all(fun(E) -> E =:= true end,
                      [fun_arity(Fs) =:= Ar || Fs <- FList]) of
@@ -1510,7 +1582,8 @@ find_fun_type_in_local(N, Ar, #scopes{local = LS}) ->
   end.
 
 %% Returns {fun_sig, L, N, T} | undefined
-find_fun_sig(N, A, #scopes{state = State}) ->
+find_fun_sig(N, A, Scopes=#scopes{}) ->
+  State = state_dl:state(Scopes),
   case dict:find(N, State#state.fun_sigs) of
     {ok, Vs} ->
       hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
@@ -1518,8 +1591,9 @@ find_fun_sig(N, A, #scopes{state = State}) ->
     error -> undefined
   end.
 
-find_fun_type_in_guards(N, A, #scopes{state = State}) ->
-  case dict:find(N, State#state.guard_types) of
+find_fun_type_in_guards(N, A, Scopes=#scopes{}) ->
+  State = state_dl:state(Scopes),
+  case dict:find(N, state_dl:guard_types(State)) of
     {ok, Vs} ->
       hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
          ++ [undefined]);
@@ -1537,7 +1611,8 @@ guard_fun_lookup_priorities() ->
 
 %% First checks to see if there exits a type definition in erlang types
 %% then in global scope and finally in function signature
-find_fun_type(N, Ar, Scopes=#scopes{fun_lookup = Priorities}) ->
+find_fun_type(N, Ar, Scopes=#scopes{}) ->
+  Priorities = state_dl:fun_lookup(Scopes),
   case find_fun_type0(Priorities, N, Ar, Scopes) of
     {fun_sig, _, _, T} -> T;
     undefined -> [undefined];
@@ -1557,12 +1632,13 @@ find_fun_type0([F | T], N, Ar, Scopes) ->
 find_local_fun_type_in_erlang_types(N, Ar, Scopes) ->
   find_fun_type_in_erlang_types(nil, N, Ar, Scopes).
 
-find_fun_type_in_erlang_types(M, N, Ar, #scopes{state = State}) ->
+find_fun_type_in_erlang_types(M, N, Ar, Scopes=#scopes{}) ->
+  State = state_dl:state(Scopes),
   Key = case M of
           nil -> atom_to_list(N);
           _   -> atom_to_list(M) ++ "_" ++ atom_to_list(N)
         end,
-  ETypes = State#state.erlang_types,
+  ETypes = state_dl:erlang_types(State),
   case dict:find(Key, ETypes) of
     {ok, FList} ->
       lists:flatten(
@@ -1575,41 +1651,50 @@ find_fun_type_in_erlang_types(M, N, Ar, #scopes{state = State}) ->
 start_ls(Name, S=#scopes{}) ->
   L = find_ls(Name, S),
   debug_log(S, "\t-------------- ~p -------------- ~n", [Name]),
-  S#scopes{local = L}.
+  state_dl:local(S, L).
 
 %% Same as `start_ls` except it nests the local scope
-nest_ls(Name, S=#scopes{local = OuterScope, locals = LS}) ->
+nest_ls(Name, S=#scopes{}) ->
+  OuterScope = state_dl:local(S),
+  LS = state_dl:locals(S),
   debug_log(S, "\t-------------- ~p -------------- ~n", [Name]),
-  OuterScopeName = OuterScope#local_scope.name,
+  OuterScopeName = state_dl:local_scope_name(OuterScope),
   OuterScope1 =
-    OuterScope#local_scope{
-      inner_scopes = gb_sets:add(Name, OuterScope#local_scope.inner_scopes)},
+    state_dl:inner_scopes(OuterScope,
+                          gb_sets:add(Name, state_dl:inner_scopes(OuterScope))),
   LS1 = dict:store(OuterScopeName, OuterScope1, LS),
   case dict:find(Name, LS) of
     {ok, L} ->
-      S#scopes{local = L, locals = LS1};
+      state_dl:locals(state_dl:local(S, L), LS1);
     _ ->
-      S#scopes{local = #local_scope{name = Name, outer_scope = OuterScopeName}
-              , locals = LS1}
+      NewLS = state_dl:outer_scope(
+                state_dl:local_scope_name(#local_scope{}, Name)
+                                  , OuterScopeName),
+      state_dl:locals(state_dl:local(S, NewLS), LS1)
   end.
 
 %% Save current local scope for later uses
-sync_ls(Name, S=#scopes{local = L, locals = LS}) ->
+sync_ls(Name, S=#scopes{}) ->
+  L = state_dl:local(S),
+  LS = state_dl:locals(S),
   case L#local_scope.outer_scope of
     nil ->
-      S#scopes{locals = dict:store(Name, L, LS)};
+      state_dl:locals(S, dict:store(Name, L, LS));
     OS ->
-      S#scopes{locals = dict:store(Name, L, LS), local = dict:fetch(OS, LS)}
+      S1 = state_dl:locals(S, dict:store(Name, L, LS)),
+      state_dl:local(S1, dict:fetch(OS, LS))
   end.
 
 %% Cache the number of undefined type in current local scope
 %% as long as it is zero.
-update_undefined_types_in_local(UnDefs, S=#scopes{local = L}) ->
-  L1 = L#local_scope{last_nr_undefined = UnDefs},
-  S#scopes{local = L1}.
+update_undefined_types_in_local(UnDefs, S=#scopes{}) ->
+  L = state_dl:local(S),
+  L1 = state_dl:last_nr_undefined(L, UnDefs),
+  state_dl:local(S, L1).
 
 %% Find local scope by its given name
-find_ls(Name, #scopes{locals = LS}) ->
+find_ls(Name, S=#scopes{}) ->
+  LS = state_dl:locals(S),
   find_ls(Name, LS);
 
 find_ls(Name, LocalsDict) ->
@@ -1617,19 +1702,18 @@ find_ls(Name, LocalsDict) ->
     {ok, L} ->
       L;
     _ ->
-      #local_scope{name = Name}
+      state_dl:new_local_scope(Name)
   end.
 
 update_type_in_local_scope(Type, Scopes0) ->
-  Scopes0#scopes{local =
-                   (Scopes0#scopes.local)#local_scope{type = Type}}.
+  LS = state_dl:type(state_dl:local(Scopes0), Type),
+  state_dl:local(Scopes0, LS).
 
-update_errors(Scopes=#scopes{errors = Errs}, L, Msg) ->
-  Scopes#scopes{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}.
-
-debug_log(#scopes{state = State}, Format, Args) ->
-  debug_log0(State#state.compiler_opts, Format, Args);
-debug_log(#state{compiler_opts = Opts}, Format, Args) ->
+debug_log(S=#scopes{}, Format, Args) ->
+  State = state_dl:state(S),
+  debug_log0(state_dl:compiler_opts(State), Format, Args);
+debug_log(S=#state{}, Format, Args) ->
+  Opts = state_dl:compiler_opts(S),
   debug_log0(Opts, Format, Args).
 
 debug_log0(CompilerOpts, Format, Args) ->
@@ -1649,10 +1733,11 @@ dump_local_scopes(LsDict) ->
                element(2, E1) < element(2, E2)
            end, LS)].
 
-dump_local_scope({Name, #local_scope{ vars = Vars
-                                    , type = Type
-                                    , inner_scopes = IS
-                                    , outer_scope = OS}}) ->
+dump_local_scope({Name, LS=#local_scope{}}) ->
+  Vars = state_dl:vars(LS),
+  Type = state_dl:type(LS),
+  IS = state_dl:inner_scopes(LS),
+  OS = state_dl:outer_scope(LS),
   N = io_lib:format("~p", [Name]),
   io:format("Name: ~s~n", [N]),
   io:format("Vars:~n", []),

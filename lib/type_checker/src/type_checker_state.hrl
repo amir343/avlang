@@ -1,6 +1,8 @@
 -ifndef(_TYPE_CHECK_STATE_HRL_).
 -define(_TYPE_CHECK_STATE_HRL_, true).
 
+-define(TYPE_MSG, type_err_msg).
+
 -record(state,
         { fun_sigs         = dict:new()
           %% {key, [{fun_sig, L, N, [T]}]}

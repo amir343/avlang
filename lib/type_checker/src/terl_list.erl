@@ -2,7 +2,7 @@
 
 -export([ op/1
         , op/3
-        , lcs/2
+        , lub/2
         ]).
 
 -include("type_macros.hrl").
@@ -35,6 +35,6 @@ op(_)                             -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lcs(T, {list_type, T})            -> {list_type, T};
-lcs(T1, {list_type, T2})          -> {list_type, type_internal:lcs(T1, T2)};
-lcs(_, _)                         -> ?ANY.
+lub(T, {list_type, T})            -> {list_type, T};
+lub(T1, {list_type, T2})          -> {list_type, type_internal:lub(T1, T2)};
+lub(_, _)                         -> ?ANY.
