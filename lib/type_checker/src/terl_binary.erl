@@ -2,7 +2,7 @@
 
 -export([ op/1
         , op/2
-        , lcs/1
+        , lub/1
         , type_specifier_list/1
         ]).
 
@@ -14,8 +14,8 @@ op(_)    -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lcs(?BINARY)         -> ?BINARY;
-lcs(_)               -> ?ANY.
+lub(?BINARY)         -> ?BINARY;
+lub(_)               -> ?ANY.
 
 
 type_specifier_list(default) ->

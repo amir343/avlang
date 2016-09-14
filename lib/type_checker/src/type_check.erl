@@ -1055,8 +1055,8 @@ type_of({'case', _, E, Cls}, Scopes0) ->
                     S3 = sync_ls(Name, S2),
                     {Ind + 1, Ts ++ [TC], S3}
                 end, {0, [], Scopes2}, Cls),
-  Tlcs = find_lcs(TCls),
-  {Tlcs, Scopes3};
+  Tlub = find_lub(TCls),
+  {Tlub, Scopes3};
 
 type_of({'if', _, Cls}, Scopes0) ->
   {_, TCls, Scopes1} =
@@ -1068,8 +1068,8 @@ type_of({'if', _, Cls}, Scopes0) ->
                     S3 = sync_ls(Name, S2),
                     {Ind + 1, Ts ++ [TC], S3}
                 end, {0, [], Scopes0}, Cls),
-  Tlcs = find_lcs(TCls),
-  {Tlcs, Scopes1};
+  Tlub = find_lub(TCls),
+  {Tlub, Scopes1};
 
 type_of({generate, L, P, E}, Scopes0) ->
   {TE, Scopes1} = type_of(E, Scopes0),
@@ -1192,7 +1192,7 @@ eliminate_based_on_clauses(E, Cls, Scopes0) ->
                                     end, VTDict, VT0)
                     end, dict:new(), Cls),
   lists:foldl(fun({K, Vs}, S0) ->
-                  T = find_lcs(Vs),
+                  T = find_lub(Vs),
                   update_local(S0, [{K, T}])
               end, Scopes0, dict:to_list(VTsDict)).
 
@@ -1226,9 +1226,9 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   Scopes5 = update_type_in_local_scope(TLastCl, Scopes4),
   {TLastCl, check_local_scope(Scopes5)}.
 
-find_lcs(TCls) ->
+find_lub(TCls) ->
   lists:foldl(fun(T1, T2) ->
-                  type_internal:lcs(T1, T2)
+                  type_internal:lub(T1, T2)
               end, nothing, TCls).
 
 create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
@@ -1422,7 +1422,7 @@ assert_list_validity(TH, TT) ->
     {_, nothing}            -> {list_type, TH};
     {{terl_type, 'Any'}, _} -> {list_type, TT};
     {T1, T2} ->
-      {list_type, type_internal:lcs(T1, T2)}
+      {list_type, type_internal:lub(T1, T2)}
   end.
 
 assert_tuple_validity(TES, _L) ->

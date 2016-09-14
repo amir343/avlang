@@ -2,7 +2,7 @@
 
 -export([ op/1
         , op/2
-        , lcs/1
+        , lub/1
         ]).
 
 -include("type_macros.hrl").
@@ -13,5 +13,5 @@ op(_, _)    -> ?INVALID.
 
 op(_)       -> ?INVALID.
 
-lcs(?PID)   -> ?PID;
-lcs(_)      -> ?ANY.
+lub(?PID)   -> ?PID;
+lub(_)      -> ?ANY.

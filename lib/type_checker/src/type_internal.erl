@@ -11,8 +11,8 @@
         , find_record_type/2
         , find_record_field_type/2
         , invalid_operator/0
-        , lcs/1
-        , lcs/2
+        , lub/1
+        , lub/2
         , op/1
         , op/2
         , sub_type_of/2
@@ -84,39 +84,39 @@ op(Op, T2) ->
             ++ "~p and Type ~p~n", [Op, T2]),
   undefined.
 
-lcs(T) ->
-  io:format("No lcs defined to ~p~n", [T]),
+lub(T) ->
+  io:format("No lub defined to ~p~n", [T]),
   ?ANY.
 
-lcs(T, T) ->
+lub(T, T) ->
   T;
-lcs(T, nothing) ->
+lub(T, nothing) ->
   T;
-lcs(nothing, T) ->
+lub(nothing, T) ->
   T;
-lcs({list_type, T1}, T2) ->
-  terl_list:lcs(T1, T2);
-lcs(undefined, _) ->
+lub({list_type, T1}, T2) ->
+  terl_list:lub(T1, T2);
+lub(undefined, _) ->
   undefined;
-lcs(_, undefined) ->
+lub(_, undefined) ->
   undefined;
-lcs({union_type, _} = T1, {union_type, _} = T2) ->
+lub({union_type, _} = T1, {union_type, _} = T2) ->
   case type_equivalent(T1, T2) of
     true -> T1;
     false -> {terl_type, 'Any'}
   end;
-lcs({union_type, _}, _) ->
+lub({union_type, _}, _) ->
   {terl_type, 'Any'};
-lcs({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
+lub({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
   case type_equivalent(T1, T2) of
     true -> T1;
     false -> {terl_type, 'Any'}
   end;
-lcs({fun_type, _, _}, _) ->
+lub({fun_type, _, _}, _) ->
   {terl_type, 'Any'};
-lcs(T1, T2) ->
+lub(T1, T2) ->
   M = module_of(T1),
-  apply(M, lcs, [T2]).
+  apply(M, lub, [T2]).
 
 type_tag(Type) ->
   case built_in(Type) of

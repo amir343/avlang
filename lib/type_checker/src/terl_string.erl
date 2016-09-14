@@ -2,7 +2,7 @@
 
 -export([ op/1
         , op/2
-        , lcs/1
+        , lub/1
         ]).
 
 -include("type_macros.hrl").
@@ -26,5 +26,5 @@ op(_)            -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lcs(?STRING)     -> ?STRING;
-lcs(_)           -> ?ANY.
+lub(?STRING)     -> ?STRING;
+lub(_)           -> ?ANY.
