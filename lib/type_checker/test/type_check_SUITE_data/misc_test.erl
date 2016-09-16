@@ -6,11 +6,14 @@ specs() ->
   , {2, "Tobias", "Lindahl", 3.0, ok}
   ].
 
+and1 :: (true, true) -> Boolean;
+        (false, Any) -> Boolean;
+        (Any, false) -> Boolean.
 and1(true, true) -> true;
 and1(false, _)   -> false;
 and1(_, false)   -> false.
 
-
+lc :: () -> [[Integer]].
 lc() ->
   [begin
      [I1]

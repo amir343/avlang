@@ -74,6 +74,12 @@ format_error0({none_matching_record_type, N}) ->
       "with record definition",
     [N]);
 
+format_error0({fun_head_fun_sig_size_mismatch, N, M, Name, Arity}) ->
+  io_lib:format(
+    "Declared function signature for ~p/~p has different head size than"
+    ++ " the function declaration: ~p vs. ~p",
+    [Name, Arity, M, N]);
+
 format_error0({inferred_conflicting_types, V, T1, T2}) ->
   io_lib:format(
     "~s has conflicting types: '~s' and '~s'",

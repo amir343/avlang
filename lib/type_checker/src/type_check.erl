@@ -607,7 +607,19 @@ match_clauses_with_sig(N, A, Cls, Scopes) ->
     undefined ->
       {lists:map(fun(E) -> {E, undefined} end, Cls), Scopes};
     FSs ->
-      match_clauses_with_sig0(Cls, FSs, [], Scopes)
+      {FSs1, Scopes1} = assert_and_fix_size_inequality(Cls, FSs, Scopes),
+      match_clauses_with_sig0(Cls, FSs1, [], Scopes1)
+  end.
+
+assert_and_fix_size_inequality(Cls, {fun_sig, L, Name, Sigs} = FSs, Scopes) ->
+  case {length(Cls), length(Sigs)} of
+    {N, N} -> {FSs, Scopes};
+    {N, 1} ->
+      {{fun_sig, L, Name, [hd(Sigs) || _ <- lists:seq(1, N)]}, Scopes};
+    {N, M} ->
+      Msg = {fun_head_fun_sig_size_mismatch, N, M, Name, fun_arity(Sigs)},
+      Scopes1 = state_dl:update_errors(Scopes, L, Msg),
+      {FSs, Scopes1}
   end.
 
 match_clauses_with_ftype(Cls, L, Scopes=#scopes{}) ->
@@ -651,8 +663,12 @@ find_the_best_match(TypedArgs, FTypes) ->
   %% Always picks the first best match. In case of multiple match with
   %% the same rank, it's developer's responsibility to declare fun sigs
   %% in correct order
-  [{_Rank, BestMatch} | _] = SortedScores,
-  BestMatch.
+  case SortedScores of
+    [] -> undefined;
+    _ ->
+      {_Rank, BestMatch} = hd(SortedScores),
+      BestMatch
+  end.
 
 %% Calculate the scores given to two typed argument lists on the degree
 %% of how much they match each other

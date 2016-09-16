@@ -233,6 +233,10 @@ sub_type_of(_, {terl_type, 'Any'}) ->
   true;
 sub_type_of({terl_atom_type, _}, {terl_type, 'Atom'}) ->
   true;
+sub_type_of({terl_atom_type, true}, {terl_type, 'Boolean'}) ->
+  true;
+sub_type_of({terl_atom_type, false}, {terl_type, 'Boolean'}) ->
+  true;
 sub_type_of(T, T) ->
   true;
 sub_type_of(_, _) ->
