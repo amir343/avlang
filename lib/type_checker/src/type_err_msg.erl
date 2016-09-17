@@ -63,6 +63,11 @@ format_error0({duplicate_record_type, N, L1, L2}) ->
     "Record type duplication: #~p is defined at line ~p and ~p",
     [N, L1, L2]);
 
+format_error0({function_pointer_not_found, N, A}) ->
+  io_lib:format(
+    "Can no infer type for function pointer ~p/~p",
+    [N, A]);
+
 format_error0({no_record_definition, N}) ->
   io_lib:format(
     "No record definition found for type #~p",
