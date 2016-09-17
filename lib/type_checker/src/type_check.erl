@@ -978,6 +978,15 @@ type_of({tuple, L, Es}, Scopes0) ->
                               end, {[], Scopes0}, Es),
   {assert_tuple_validity(TEs, L), Scopes1};
 
+type_of({'fun', L, {function, N, A}}, Scopes0) ->
+  case find_fun_type_in_global(N, A, Scopes0) of
+    [] ->
+      Msg = {function_pointer_not_found, N, A},
+      {undefined, state_dl:update_errors(Scopes0, L, Msg)};
+    FType ->
+      {FType, Scopes0}
+  end;
+
 type_of({'fun', L, {clauses, [{clause, _, Args, _, _} | _] = Cls}}, Scopes0) ->
   {ClauseSig, Scopes1} = match_clauses_with_ftype(Cls, L, Scopes0),
   N = list_to_atom("anonymous_fun_at_" ++ integer_to_list(L)),
