@@ -604,33 +604,35 @@ select_list_passes_1([], _, Acc) ->
 %% The standard passes (almost) always run.
 
 standard_passes() ->
-  [?pass(transform_module),
+  [
+   ?pass(transform_module)
 
-   {iff,makedep,[
-                 ?pass(makedep),
-                 {unless,binary,?pass(makedep_output)}
-                ]},
-   {iff,makedep,done},
+  , {iff,makedep,[
+                  ?pass(makedep),
+                  {unless,binary,?pass(makedep_output)}
+                 ]}
+  , {iff,makedep,done}
 
-   {iff,'dpp',{listing,"pp"}},
-   ?pass(type_check),
-   ?pass(lint_module),
-   {iff,'P',{src_listing,"P"}},
-   {iff,'to_pp',{done,"P"}},
+  , {iff,'dpp',{listing,"pp"}}
+  , ?pass(lint_module)
+  , ?pass(type_check)
+  , {iff,'P',{src_listing,"P"}}
+  , {iff,'to_pp',{done,"P"}}
 
-   {iff,'dabstr',{listing,"abstr"}},
-   {iff,debug_info,?pass(save_abstract_code)},
+  , {iff,'dabstr',{listing,"abstr"}}
+  , {iff,debug_info,?pass(save_abstract_code)}
 
-   ?pass(expand_module),
-   {iff,'dexp',{listing,"expand"}},
-   {iff,'E',{src_listing,"E"}},
-   {iff,'to_exp',{done,"E"}},
+  , ?pass(expand_module)
+  , {iff,'dexp',{listing,"expand"}}
+  , {iff,'E',{src_listing,"E"}}
+  , {iff,'to_exp',{done,"E"}}
 
    %% Conversion to Core Erlang.
-   {pass,v3_core},
-   {iff,'dcore',{listing,"core"}},
-   {iff,'to_core0',{done,"core"}}
-   | core_passes()].
+  , {pass,v3_core}
+  , {iff,'dcore',{listing,"core"}}
+  , {iff,'to_core0',{done,"core"}}
+   | core_passes()
+  ].
 
 core_passes() ->
   %% Optimization and transforms of Core Erlang code.
@@ -652,21 +654,23 @@ core_passes() ->
 
 kernel_passes() ->
   %% Destructive setelement/3 optimization and core lint.
-  [{pass,sys_core_dsetel},
-   {iff,dsetel,{listing,"dsetel"}},
+  [
+    {pass,sys_core_dsetel}
+  , {iff,dsetel,{listing,"dsetel"}}
 
-   {iff,clint,?pass(core_lint_module)},
-   {iff,core,?pass(save_core_code)},
+  , {iff,clint,?pass(core_lint_module)}
+  , {iff,core,?pass(save_core_code)}
 
    %% Kernel Erlang and code generation.
-   {pass,v3_kernel},
-   {iff,dkern,{listing,"kernel"}},
-   {iff,'to_kernel',{done,"kernel"}},
-   {pass,v3_life},
-   {iff,dlife,{listing,"life"}},
-   {pass,v3_codegen},
-   {iff,dcg,{listing,"codegen"}}
-   | asm_passes()].
+  , {pass,v3_kernel}
+  , {iff,dkern,{listing,"kernel"}}
+  , {iff,'to_kernel',{done,"kernel"}}
+  , {pass,v3_life}
+  , {iff,dlife,{listing,"life"}}
+  , {pass,v3_codegen}
+  , {iff,dcg,{listing,"codegen"}}
+   | asm_passes()
+  ].
 
 asm_passes() ->
   %% Assembly level optimisations.
@@ -712,8 +716,10 @@ asm_passes() ->
    | binary_passes()].
 
 binary_passes() ->
-  [{native_compile,fun test_native/1,fun native_compile/1},
-   {unless,binary,?pass(save_binary,not_werror)}].
+  [
+   {native_compile,fun test_native/1,fun native_compile/1}
+  , {unless,binary,?pass(save_binary,not_werror)}
+  ].
 
 %%%
 %%% Compiler passes.
