@@ -5,6 +5,8 @@
 
 -compile([export_all]).
 
+new_state() ->
+  #state{current_module = #module_scope{}}.
 
 erlang_types(#state{erlang_types = ET}) ->
   ET.
@@ -21,78 +23,77 @@ compiler_opts(#state{compiler_opts = CO}) ->
 compiler_opts(State=#state{}, CO) ->
   State#state{compiler_opts = CO}.
 
-type_used(#state{type_used = TU}) ->
-  TU.
-type_used(State=#state{}, TU) ->
-  State#state{type_used = TU}.
-
-type_used_loc(#state{type_used_loc = TUL}) ->
-  TUL.
-type_used_loc(State=#state{}, TUL) ->
-  State#state{type_used_loc = TUL}.
-
-type_aliases(#state{type_aliases = TA}) ->
-  TA.
-type_aliases(State=#state{}, TA) ->
-  State#state{type_aliases = TA}.
-
-type_cons(#state{type_cons = TC}) ->
-  TC.
-type_cons(State=#state{}, TC) ->
-  State#state{type_cons = TC}.
-
-declared_fun(#state{declared_fun = DF}) ->
-  DF.
-declared_fun(State=#state{}, DF) ->
-  State#state{declared_fun = DF}.
-
-fun_sigs(#state{fun_sigs = FS}) ->
-  FS.
-fun_sigs(State=#state{}, FS) ->
-  State#state{fun_sigs = FS}.
-
-remote_fun_sigs(#state{remote_fun_sigs = RFS}) ->
-  RFS.
-remote_fun_sigs(State=#state{}, RFS) ->
-  State#state{remote_fun_sigs = RFS}.
-
-record_types(#state{record_types = RT}) ->
-  RT.
-record_types(State=#state{}, RT) ->
-  State#state{record_types = RT}.
-
-records(#state{records = R}) ->
-  R.
-records(State=#state{}, R) ->
-  State#state{records = R}.
-
-scopes(State=#state{}) ->
-  #scopes{state = State}.
-
-errors(#scopes{errors = Errs}) ->
-  Errs.
-errors(Scopes=#scopes{}, Errs) ->
-  Scopes#scopes{errors = Errs}.
-
-state(#scopes{state = St}) ->
-  St.
-state(Scopes=#scopes{}, St) ->
-  Scopes#scopes{state = St}.
-
-local(#scopes{local = L}) ->
-  L.
-local(Scopes=#scopes{}, L) ->
-  Scopes#scopes{local = L}.
-
-locals(#scopes{locals = LS}) ->
-  LS.
-locals(Scopes=#scopes{}, LS) ->
-  Scopes#scopes{locals = LS}.
-
-first_pass(#scopes{first_pass = FP}) ->
+first_pass(#state{first_pass = FP}) ->
   FP.
-first_pass(Scopes=#scopes{}, FP) ->
-  Scopes#scopes{first_pass = FP}.
+first_pass(State=#state{}, FP) ->
+  State#state{first_pass = FP}.
+
+%%*.---------------------------------------------------------------------------
+
+current_module(#state{current_module = CM}) ->
+  CM.
+current_module(State=#state{}, CM) ->
+  State#state{current_module = CM}.
+
+type_used(#state{current_module = #module_scope{type_used = TU}}) ->
+  TU.
+type_used(State=#state{current_module = CM}, TU) ->
+  State#state{current_module = CM#module_scope{type_used = TU}}.
+
+type_used_loc(#state{current_module = #module_scope{type_used_loc = TUL}}) ->
+  TUL.
+type_used_loc(State=#state{current_module = CM}, TUL) ->
+  State#state{current_module = CM#module_scope{type_used_loc = TUL}}.
+
+type_aliases(#state{current_module = #module_scope{type_aliases = TA}}) ->
+  TA.
+type_aliases(State=#state{current_module = CM}, TA) ->
+  State#state{current_module = CM#module_scope{type_aliases = TA}}.
+
+type_cons(#state{current_module = #module_scope{type_cons = TC}}) ->
+  TC.
+type_cons(State=#state{current_module = CM}, TC) ->
+  State#state{current_module = CM#module_scope{type_cons = TC}}.
+
+declared_fun(#state{current_module = #module_scope{declared_fun = DF}}) ->
+  DF.
+declared_fun(State=#state{current_module = CM}, DF) ->
+  State#state{current_module = CM#module_scope{declared_fun = DF}}.
+
+fun_sigs(#state{current_module = #module_scope{fun_sigs = FS}}) ->
+  FS.
+fun_sigs(State=#state{current_module = CM}, FS) ->
+  State#state{current_module = CM#module_scope{fun_sigs = FS}}.
+
+remote_fun_sigs(#state{current_module = #module_scope{remote_fun_sigs = RF}}) ->
+  RF.
+remote_fun_sigs(State=#state{current_module = CM}, RF) ->
+  State#state{current_module = CM#module_scope{remote_fun_sigs = RF}}.
+
+record_types(#state{current_module = #module_scope{record_types = RT}}) ->
+  RT.
+record_types(State=#state{current_module = CM}, RT) ->
+  State#state{current_module = CM#module_scope{record_types = RT}}.
+
+records(#state{current_module = #module_scope{records = R}}) ->
+  R.
+records(State=#state{current_module = CM}, R) ->
+  State#state{current_module = CM#module_scope{records = R}}.
+
+errors(#state{current_module = #module_scope{errors = Errs}}) ->
+  Errs.
+errors(State=#state{current_module = CM}, Errs) ->
+  State#state{current_module = CM#module_scope{errors = Errs}}.
+
+local(#state{current_module = #module_scope{local = L}}) ->
+  L.
+local(State=#state{current_module = CM}, L) ->
+  State#state{current_module = CM#module_scope{local = L}}.
+
+locals(#state{current_module = #module_scope{locals = LS}}) ->
+  LS.
+locals(State=#state{current_module = CM}, LS) ->
+  State#state{current_module = CM#module_scope{locals = LS}}.
 
 vars(#local_scope{vars = Vars}) ->
   Vars.
@@ -109,25 +110,20 @@ last_ftype(#local_scope{last_ftype = LF}) ->
 last_ftype(LS=#local_scope{}, LF) ->
   LS#local_scope{last_ftype = LF}.
 
-global(#scopes{global = G}) ->
+global(#state{current_module = #module_scope{global = G}}) ->
   G.
-global(Scopes=#scopes{}, G) ->
-  Scopes#scopes{global = G}.
-
-last_nr_undefined(#local_scope{last_nr_undefined = LNU}) ->
-  LNU.
-last_nr_undefined(LS=#local_scope{}, LNU) ->
-  LS#local_scope{last_nr_undefined = LNU}.
+global(State=#state{current_module = CM}, G) ->
+  State#state{current_module = CM#module_scope{global = G}}.
 
 inner_scopes(#local_scope{inner_scopes = ISs}) ->
   ISs.
 inner_scopes(LS=#local_scope{}, ISs) ->
   LS#local_scope{inner_scopes = ISs}.
 
-fun_lookup(#scopes{fun_lookup = FL}) ->
+fun_lookup(#state{current_module = #module_scope{fun_lookup = FL}}) ->
   FL.
-fun_lookup(Scopes=#scopes{}, FL) ->
-  Scopes#scopes{fun_lookup = FL}.
+fun_lookup(State=#state{current_module = CM}, FL) ->
+  State#state{current_module = CM#module_scope{fun_lookup = FL}}.
 
 meta_var(Type, L) ->
   #meta_var{type = Type, line = L}.
@@ -145,21 +141,90 @@ local_scope_name(LS=#local_scope{}, Name) ->
 new_local_scope(Name) ->
   #local_scope{name = Name}.
 
-update_errors(Scopes=#scopes{errors = Errs}, Errors) when is_list(Errors) ->
-  Scopes#scopes{errors = Errs ++ Errors};
-update_errors(State=#state{errors = Errs}, Errors) when is_list(Errors) ->
-  State#state{errors = Errs ++ Errors}.
+update_errors(State=#state{current_module = CM}, Errors)
+  when is_list(Errors) ->
+  Errs = errors(State),
+  State#state{current_module = CM#module_scope{errors = Errs ++ Errors}}.
 
-update_errors(Scopes=#scopes{errors = Errs}, L, Msg) ->
-  Scopes#scopes{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]};
+update_errors(State=#state{current_module = CM}, L, Msg) ->
+  Errs = errors(State),
+  State#state{
+    current_module = CM#module_scope{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}}.
 
-update_errors(State=#state{errors = Errs}, L, Msg) ->
-  State#state{errors = Errs ++ [{L, ?TYPE_MSG, Msg}]}.
+%%*.---------------------------------------------------------------------------
 
+last_nr_undefined(#local_scope{last_nr_undefined = LNU}) ->
+  LNU;
+last_nr_undefined(#state{last_nr_undefined = LNU}) ->
+  LNU.
 
+last_nr_undefined(LS=#local_scope{}, LNU) ->
+  LS#local_scope{last_nr_undefined = LNU};
+last_nr_undefined(State=#state{}, LNU) ->
+  State#state{last_nr_undefined = LNU}.
 
+%%*.---------------------------------------------------------------------------
 
+%% Either find an already existing local scope or
+%% initializes a new one
+start_ls(Name, S=#state{}) ->
+  L = find_ls(Name, S),
+  local(S, L).
 
+%% Same as `start_ls` except it nests the local scope
+nest_ls(Name, S=#state{}) ->
+  OuterScope = local(S),
+  LS = locals(S),
+  OuterScopeName = local_scope_name(OuterScope),
+  OuterScope1 =
+    inner_scopes(OuterScope,
+                 gb_sets:add(Name, inner_scopes(OuterScope))),
+  LS1 = dict:store(OuterScopeName, OuterScope1, LS),
+  case dict:find(Name, LS) of
+    {ok, L} ->
+      locals(local(S, L), LS1);
+    _ ->
+      NewLS = outer_scope(
+                local_scope_name(#local_scope{}, Name)
+                                  , OuterScopeName),
+      locals(local(S, NewLS), LS1)
+  end.
+
+%% Save current local scope for later uses
+sync_ls(Name, S=#state{}) ->
+  L = local(S),
+  LS = locals(S),
+  case L#local_scope.outer_scope of
+    nil ->
+      locals(S, dict:store(Name, L, LS));
+    OS ->
+      S1 = locals(S, dict:store(Name, L, LS)),
+      local(S1, dict:fetch(OS, LS))
+  end.
+
+%% Cache the number of undefined type in current local scope
+%% as long as it is zero.
+update_undefined_types_in_local(UnDefs, S=#state{}) ->
+  L = local(S),
+  L1 = last_nr_undefined(L, UnDefs),
+  local(S, L1).
+
+%% Find local scope by its given name
+find_ls(Name, S=#state{}) ->
+  LS = locals(S),
+  find_ls(Name, LS);
+
+find_ls(Name, LocalsDict) ->
+  case dict:find(Name, LocalsDict) of
+    {ok, L} ->
+      L;
+    _ ->
+      new_local_scope(Name)
+  end.
+
+update_type_in_local_scope(Type, State0) ->
+  LS = type(local(State0), Type),
+  local(State0, LS).
 
 
 

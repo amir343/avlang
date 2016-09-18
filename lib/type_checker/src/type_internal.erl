@@ -245,8 +245,8 @@ sub_type_of(_, _) ->
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
 %% we need to eliminate to all posssible terminals in LHS.
-eliminate(LHS, T, Scopes) ->
-  eliminate(LHS, T, [], Scopes).
+eliminate(LHS, T, State) ->
+  eliminate(LHS, T, [], State).
 
 eliminate({integer, _, _}, _, Rs, _) ->
   Rs;
@@ -256,32 +256,32 @@ eliminate({var, _, '_'}, _, Rs, _) ->
   Rs;
 eliminate({var, _, _} = V, T, Rs, _) ->
   [{V, T} | Rs];
-eliminate({cons, _, A, B}, T, Rs0, Scopes) ->
-  Rs1 = eliminate(A, ulist(T), Rs0, Scopes),
-  eliminate(B, T, Rs1, Scopes);
-eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, Scopes) ->
+eliminate({cons, _, A, B}, T, Rs0, State) ->
+  Rs1 = eliminate(A, ulist(T), Rs0, State),
+  eliminate(B, T, Rs1, State);
+eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, State) ->
   case length(Es) =/= length(Ts) of
     true -> throw({error, L, {match_on_unequally_sized_tuple, T}});
     false ->
       lists:foldl(fun({K, V}, Acc) ->
-                      eliminate(K, V, Acc, Scopes)
+                      eliminate(K, V, Acc, State)
                   end, Rs0, lists:zip(Es, Ts))
   end;
 eliminate({tuple, _L, Es}, _, Rs0, _) ->
   lists:flatten([eliminate(E, undefined, []) || E <- Es]) ++ Rs0;
 eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
-       {terl_type, string} = T, Rs, Scopes) ->
-  eliminate(V, T, Rs, Scopes);
-eliminate({record, _, _, _} = R, _T, Rs, Scopes) ->
-  Rs ++ eliminate_record_type(R, Scopes);
+       {terl_type, string} = T, Rs, State) ->
+  eliminate(V, T, Rs, State);
+eliminate({record, _, _, _} = R, _T, Rs, State) ->
+  Rs ++ eliminate_record_type(R, State);
 eliminate(_, _, W, _) ->
   W.
 
-eliminate_record_type({record, _, N, Ts}, Scopes0=#scopes{state = St}) ->
-  TR = find_record_type(N, St),
+eliminate_record_type({record, _, N, Ts}, State0=#state{}) ->
+  TR = find_record_type(N, State0),
   lists:foldl(fun({record_field, _, {atom, _, F}, V}, Acc) ->
                   TF = find_record_field_type(F, TR),
-                  Acc ++ eliminate(V, TF, Scopes0)
+                  Acc ++ eliminate(V, TF, State0)
               end, [], Ts).
 
 
@@ -393,8 +393,8 @@ type_terminals(undefined) ->
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
 
-
-find_record_type(N, #state{record_types = RT}) ->
+find_record_type(N, State=#state{}) ->
+  RT = state_dl:record_types(State),
   case dict:find(N, RT) of
     {ok, T} -> T;
     error   -> undefined
@@ -404,3 +404,13 @@ find_record_field_type(_, undefined) ->
   undefined;
 find_record_field_type(F, T) ->
   proplists:get_value(F, T).
+
+
+
+
+
+
+
+
+
+
