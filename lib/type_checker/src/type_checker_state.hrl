@@ -17,7 +17,8 @@
 
 -record(module_scope,
         {
-          declared_fun        = dict:new()
+          module_name         = nil
+        , declared_fun        = dict:new()
           %% {Key, [{function, ...}]}
         , errors              = []
         , filename            = nil
@@ -42,6 +43,7 @@
           %% Set(atom)
         , type_used_loc       = dict:new()
           %% {Key, [Line]}
+        , warnings            = []
         }).
 
 -record(meta_var,

@@ -1003,8 +1003,8 @@ add_default_base(St, Forms) ->
   end.
 
 type_check(St) ->
-  case type_check:module(St#compile.code,
-                         St#compile.ifile, St#compile.options) of
+  Input = [{St#compile.ifile, St#compile.code}],
+  case type_check:module(Input, St#compile.options) of
     {ok,Ws} ->
       {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
     {error,Es,Ws} ->

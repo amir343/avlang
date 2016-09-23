@@ -28,6 +28,9 @@ first_pass(#state{first_pass = FP}) ->
 first_pass(State=#state{}, FP) ->
   State#state{first_pass = FP}.
 
+module_scopes(#state{module_scopes = MS}) ->
+  MS.
+
 %%*.---------------------------------------------------------------------------
 
 current_module(#state{current_module = CM}) ->
@@ -65,6 +68,18 @@ fun_sigs(#state{current_module = #module_scope{fun_sigs = FS}}) ->
 fun_sigs(State=#state{current_module = CM}, FS) ->
   State#state{current_module = CM#module_scope{fun_sigs = FS}}.
 
+
+filename(#state{current_module = #module_scope{filename = F}}) ->
+  F;
+filename(#module_scope{filename = F}) ->
+  F.
+
+forms(#state{current_module = #module_scope{forms = Forms}}) ->
+  Forms.
+
+new_module_scope(Filename, Forms) ->
+  #module_scope{filename = Filename, forms = Forms}.
+
 remote_fun_sigs(#state{current_module = #module_scope{remote_fun_sigs = RF}}) ->
   RF.
 remote_fun_sigs(State=#state{current_module = CM}, RF) ->
@@ -81,9 +96,25 @@ records(State=#state{current_module = CM}, R) ->
   State#state{current_module = CM#module_scope{records = R}}.
 
 errors(#state{current_module = #module_scope{errors = Errs}}) ->
+  Errs;
+errors(#module_scope{errors = Errs}) ->
   Errs.
+
 errors(State=#state{current_module = CM}, Errs) ->
   State#state{current_module = CM#module_scope{errors = Errs}}.
+
+warnings(#state{current_module = #module_scope{warnings = Ws}}) ->
+  Ws;
+warnings(#module_scope{warnings = Ws}) ->
+  Ws.
+
+warnings(State=#state{current_module = CM}, Ws) ->
+  State#state{current_module = CM#module_scope{warnings = Ws}}.
+
+module_name(#state{current_module = #module_scope{module_name = M}}) ->
+  M.
+module_name(State=#state{current_module = CM}, M) ->
+  State#state{current_module = CM#module_scope{module_name = M}}.
 
 local(#state{current_module = #module_scope{local = L}}) ->
   L.
@@ -110,6 +141,8 @@ last_ftype(#local_scope{last_ftype = LF}) ->
 last_ftype(LS=#local_scope{}, LF) ->
   LS#local_scope{last_ftype = LF}.
 
+global(#module_scope{global = G}) ->
+  G;
 global(#state{current_module = #module_scope{global = G}}) ->
   G.
 global(State=#state{current_module = CM}, G) ->
@@ -226,6 +259,10 @@ update_type_in_local_scope(Type, State0) ->
   LS = type(local(State0), Type),
   local(State0, LS).
 
-
+save_current_module_scope(State=#state{current_module = CM
+                                      , module_scopes = MS}) ->
+  ModuleName = CM#module_scope.module_name,
+  NewMS = dict:store(ModuleName, CM, MS),
+  State#state{current_module = nil, module_scopes = NewMS}.
 
 

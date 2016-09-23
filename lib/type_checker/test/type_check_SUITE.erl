@@ -21,27 +21,27 @@ all() ->
 test_record() ->
   FileName = "record_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module(AbsForms, FileName, []).
+  {ok, []} = type_check:module([{FileName, AbsForms}], []).
 
 test_binary() ->
   FileName = "binary_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module(AbsForms, FileName, []).
+  {ok, []} = type_check:module([{FileName, AbsForms}], []).
 
 test_misc() ->
   FileName = "misc_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module(AbsForms, FileName, []).
+  {ok, []} = type_check:module([{FileName, AbsForms}], []).
 
 test_type_syntax() ->
   FileName = "type_syntax_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module(AbsForms, FileName, []).
+  {ok, []} = type_check:module([{FileName, AbsForms}], []).
 
 test_function_pointer() ->
   FileName = "function_pointer_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module(AbsForms, FileName, []).
+  {ok, []} = type_check:module([{FileName, AbsForms}], []).
 
 abstract_forms_for_module(FileName) ->
   TestDir = code:lib_dir(type_checker, test),

@@ -53,6 +53,7 @@ MODULES =  \
 	terl_union \
 	type_check \
 	type_check_compiler_opts \
+	type_err_msg \
 	type_internal
 
 BEAM_H = $(wildcard ../priv/beam_h/*.h)
