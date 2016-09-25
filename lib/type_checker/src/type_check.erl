@@ -51,31 +51,6 @@ run_passes(FileNameForms, Opts) ->
                , [EE, Err])
   end.
 
-sort_err_ws(List) ->
-  lists:sort(fun({L1, _, _}, {L2, _, _}) ->
-                 L1 < L2
-                 end, List).
-
-format_result(State=#state{}) ->
-  ModuleScopes = state_dl:module_scopes(State),
-  {Errors, Warnings} =
-    lists:foldl(fun({_M, MS}, {Errs0, Ws0}) ->
-                    FN    = state_dl:filename(MS),
-                    Errs  = state_dl:errors(MS),
-                    Ws    = state_dl:warnings(MS),
-                    Errs1 = sort_err_ws(Errs),
-                    Ws1   = sort_err_ws(Ws),
-                    {[{FN, Errs1} || length(Errs1) =/= 0] ++ Errs0,
-                     [{FN, Ws1} || length(Ws1) =/= 0] ++ Ws0}
-                end, {[], []}, dict:to_list(ModuleScopes)),
-
-  case length(Errors) of
-    0 ->
-      {ok, Warnings};
-    _ ->
-      {error, Errors, Warnings}
-  end.
-
 run_one_time_passes(FileNameForms, State, _Opts) ->
   lists:foldl(fun({FileName, Forms}, St0) ->
                   MS  = state_dl:new_module_scope(FileName, Forms),
@@ -94,7 +69,7 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
 
   {State1, Undefs} =
     lists:foldl(fun({M, MS}, {St0, Undefs0}) ->
-                    debug_log(State, "Type checking module ~p", [M]),
+                    debug_log(State, "Type checking module '~p'~n", [M]),
                     St1 = state_dl:current_module(St0, MS),
                     St2 = type_check0(St1),
                     St3 = state_dl:errors(St2, []),
@@ -108,7 +83,6 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
   %% Only for sake of debugging
   debug_log(State,
             "\t~~~~~~~~~~~~~~~~~~~~ Global scope ~~~~~~~~~~~~~~~~~~~~ ~n", []),
-
   lists:foreach(
     fun({M, MS}) ->
         lists:foreach(fun({N, FTypes}) ->
@@ -119,7 +93,6 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
                       end, dict:to_list(state_dl:global(MS)))
     end,
     dict:to_list(state_dl:module_scopes(State1))),
-
 
   debug_log(State, "Number of undefined types and erros: ~p~n", [Undefs]),
 
@@ -133,7 +106,7 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
           type_check_loop(PassN + 1, State2, Undefs);
         false ->
           case Undefs =:= PUndefs of
-            %% Has number of Undefined changed from previous and this run?
+            %% Has number of Undefined not changed from previous and this run?
             true ->
               State2;
             false ->
@@ -142,6 +115,28 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
       end
   end.
 
+format_result(State=#state{}) ->
+  ModuleScopes = state_dl:module_scopes(State),
+  {Errors, Warnings} =
+    lists:foldl(fun({_M, MS}, {Errs0, Ws0}) ->
+                    FN    = state_dl:filename(MS),
+                    Errs  = state_dl:errors(MS),
+                    Ws    = state_dl:warnings(MS),
+                    Errs1 = sort_err_ws(Errs),
+                    Ws1   = sort_err_ws(Ws),
+                    {[{FN, Errs1} || length(Errs1) =/= 0] ++ Errs0,
+                     [{FN, Ws1} || length(Ws1) =/= 0] ++ Ws0}
+                end, {[], []}, dict:to_list(ModuleScopes)),
+
+  case length(Errors) of
+    0 -> {ok, Warnings};
+    _ -> {error, Errors, Warnings}
+  end.
+
+sort_err_ws(List) ->
+  lists:sort(fun({L1, _, _}, {L2, _, _}) ->
+                 L1 < L2
+                 end, List).
 
 count_undefined(S) ->
   count_undefined_local_scopes(S)
@@ -577,24 +572,24 @@ fun_arity([{fun_type, I, _} | _]) ->
 
 %%%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-type_check0(State=#state{}) ->
-  Opts  = state_dl:compiler_opts(State),
-  Forms = state_dl:forms(State),
-  S     = type_check1(Forms, State),
-  Errs0 = state_dl:errors(S),
-  LS    = state_dl:locals(S),
+type_check0(S0=#state{}) ->
+  Opts   = state_dl:compiler_opts(S0),
+  Forms  = state_dl:forms(S0),
+  S1     = type_check1(Forms, S0),
+  Errs0  = state_dl:errors(S1),
+  LS     = state_dl:locals(S1),
 
   case type_check_compiler_opts:dump_local_scopes(Opts) of
     true -> dump_local_scopes(LS);
     false -> ok
   end,
 
-  debug_log(S, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
-  debug_log(S, "Number of errors: ~p~n", [length(Errs0)]),
+  debug_log(S1, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
+  debug_log(S1, "Number of errors: ~p~n", [length(Errs0)]),
 
   Errs = gb_sets:to_list(gb_sets:from_list(Errs0)),
 
-  state_dl:errors(State, Errs).
+  state_dl:errors(S1, Errs).
 
 type_check1([], State) ->
   State;
