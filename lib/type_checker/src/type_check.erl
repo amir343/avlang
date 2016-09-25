@@ -72,12 +72,11 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
                     debug_log(State, "Type checking module '~p'~n", [M]),
                     St1 = state_dl:current_module(St0, MS),
                     St2 = type_check0(St1),
-                    St3 = state_dl:errors(St2, []),
-                    St4 = state_dl:save_current_module_scope(St3),
+                    St3 = state_dl:save_current_module_scope(St2),
                     UndefinedTypes = count_undefined(St2),
                     NErros = length(state_dl:errors(St2)),
-                    {St4, Undefs0 + UndefinedTypes + NErros}
-                end, {State, 0} ,
+                    {St3, Undefs0 + UndefinedTypes + NErros}
+                end, {State, 0},
                 dict:to_list(state_dl:module_scopes(State))),
 
   %% Only for sake of debugging
@@ -97,20 +96,26 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
   debug_log(State, "Number of undefined types and erros: ~p~n", [Undefs]),
 
   State2 = state_dl:first_pass(State1, false),
+  StateWithNoErrors =
+    lists:foldl(fun({M, MS}, S0) ->
+                    MS1 = state_dl:errors(MS, []),
+                    state_dl:module_scope(S0, M, MS1)
+                end, State2,
+                dict:to_list(state_dl:module_scopes(State2))),
 
   case Undefs of
     0 -> State2;    %% All types could be inferred
     _ ->
       case FP of
         true ->
-          type_check_loop(PassN + 1, State2, Undefs);
+          type_check_loop(PassN + 1, StateWithNoErrors, Undefs);
         false ->
           case Undefs =:= PUndefs of
             %% Has number of Undefined not changed from previous and this run?
             true ->
               State2;
             false ->
-              type_check_loop(PassN + 1, State2, Undefs)
+              type_check_loop(PassN + 1, StateWithNoErrors, Undefs)
           end
       end
   end.
