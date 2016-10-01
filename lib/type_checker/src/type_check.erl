@@ -31,10 +31,10 @@
 
 %%------------------------------------------------------------------------------
 
-module(FileNameForms, Opts) ->
+module([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
   run_passes(FileNameForms, Opts).
 
-run_passes(FileNameForms, Opts) ->
+run_passes([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
   try
     Opts1 = type_check_compiler_opts:options_of_interest(Opts),
     St0   = state_dl:compiler_opts(state_dl:new_state(), Opts1),
@@ -52,8 +52,8 @@ run_passes(FileNameForms, Opts) ->
   end.
 
 run_one_time_passes(FileNameForms, State, _Opts) ->
-  lists:foldl(fun({FileName, Forms}, St0) ->
-                  MS  = state_dl:new_module_scope(FileName, Forms),
+  lists:foldl(fun({FileName, Forms, Compile}, St0) ->
+                  MS  = state_dl:new_module_scope(FileName, Forms, Compile),
                   St1 = state_dl:current_module(St0, MS),
                   St2 = type_lint(St1),
                   state_dl:save_current_module_scope(St2)
@@ -122,26 +122,21 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
 
 format_result(State=#state{}) ->
   ModuleScopes = state_dl:module_scopes(State),
-  {Errors, Warnings} =
-    lists:foldl(fun({_M, MS}, {Errs0, Ws0}) ->
+  {NErrors, Result} =
+    lists:foldl(fun({_M, MS}, {Errs0, Acc}) ->
                     FN    = state_dl:filename(MS),
                     Errs  = state_dl:errors(MS),
                     Ws    = state_dl:warnings(MS),
-                    Errs1 = sort_err_ws(Errs),
-                    Ws1   = sort_err_ws(Ws),
-                    {[{FN, Errs1} || length(Errs1) =/= 0] ++ Errs0,
-                     [{FN, Ws1} || length(Ws1) =/= 0] ++ Ws0}
-                end, {[], []}, dict:to_list(ModuleScopes)),
+                    C     = state_dl:compile_record(MS),
+                    Errs1 = [{FN, Errs} || length(Errs) =/= 0],
+                    Ws1   = [{FN, Ws} || length(Ws) =/= 0],
+                    {Errs0 + length(Errs), [{Ws1, Errs1, C} | Acc]}
+                end, {0, []}, dict:to_list(ModuleScopes)),
 
-  case length(Errors) of
-    0 -> {ok, Warnings};
-    _ -> {error, Errors, Warnings}
+  case NErrors of
+    0 -> {ok, Result};
+    _ -> {error, Result}
   end.
-
-sort_err_ws(List) ->
-  lists:sort(fun({L1, _, _}, {L2, _, _}) ->
-                 L1 < L2
-                 end, List).
 
 count_undefined(S) ->
   count_undefined_local_scopes(S)

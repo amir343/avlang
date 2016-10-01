@@ -22,7 +22,15 @@
 -module(compile).
 
 %% High-level interface.
--export([file/1,file/2,noenv_file/2,format_error/1,iofile/1]).
+-export([ file/1
+        , file/2
+        , files/1
+        , files/2
+        , noenv_file/2
+        , format_error/1
+        , iofile/1
+        ]).
+
 -export([forms/1,forms/2,noenv_forms/2]).
 -export([output_generated/1,noenv_output_generated/1]).
 -export([options/0]).
@@ -71,12 +79,21 @@
 
 file(File) -> file(File, ?DEFAULT_OPTIONS).
 
+-spec files([module() | [file:filename()]]) -> comp_ret().
+
+files(Files) -> files(Files, ?DEFAULT_OPTIONS).
+
 -spec file(module() | file:filename(), [option()] | option()) -> comp_ret().
 
 file(File, Opts) when is_list(Opts) ->
   do_compile({file,File}, Opts++env_default_opts());
 file(File, Opt) ->
   file(File, [Opt|?DEFAULT_OPTIONS]).
+
+files(Files, Opts) when is_list(Opts) ->
+  do_compile({files, Files}, Opts ++ env_default_opts());
+files(Files, Opt) ->
+  files(Files, [Opt|?DEFAULT_OPTIONS]).
 
 forms(File) -> forms(File, ?DEFAULT_OPTIONS).
 
@@ -279,33 +296,91 @@ internal({forms,Forms}, Opts0) ->
 internal({file,File}, Opts) ->
   {Ext,Ps} = passes(file, Opts),
   Compile = #compile{options=Opts,mod_options=Opts},
-  internal_comp(Ps, File, Ext, Compile).
+  internal_comp(Ps, File, Ext, Compile);
+internal({files, Files}, Opts) ->
+  {Ext,Ps} = passes(file, Opts),
+  Run = build_run(Opts),
+  Compiles =
+    lists:foldl(fun(File, Acc) ->
+                    St0 = #compile{options = Opts, mod_options = Opts},
+                    [build_state(File, Ext, St0) | Acc]
+                end, [], Files),
+  case fold_comps(Ps, Run, Compiles, Opts) of
+    {ok, St2} -> comp_ret_ok(St2);
+    {error, St2} ->
+      comp_ret_err(St2)
+  end.
 
-internal_comp(Passes, File, Suffix, St0) ->
+internal_comp(Passes, File, Suffix, St0=#compile{options = Opts}) ->
+  St1 = build_state(File, Suffix, St0),
+  Run = build_run(Opts),
+  case fold_comp(Passes, Run, St1) of
+    {ok,St2}    -> comp_ret_ok(St2);
+    {error,St2} -> comp_ret_err(St2)
+  end.
+
+build_state(File, Suffix, St0) ->
   Dir = filename:dirname(File),
   Base = filename:basename(File, Suffix),
-  St1 = St0#compile{filename=File, dir=Dir, base=Base,
-                    ifile=erlfile(Dir, Base, Suffix),
-                    ofile=objfile(Base, St0)},
-  Opts = St1#compile.options,
+  St0#compile{filename=File, dir=Dir, base=Base,
+              ifile=erlfile(Dir, Base, Suffix),
+              ofile=objfile(Base, St0)}.
+
+build_run(Opts) ->
   Run0 = case member(time, Opts) of
            true  ->
-             io:format("Compiling ~tp\n", [File]),
              fun run_tc/2;
            false -> fun({_Name,Fun}, St) -> catch Fun(St) end
          end,
-  Run = case keyfind(eprof, 1, Opts) of
-          {eprof,EprofPass} ->
-            fun(P, St) ->
-                run_eprof(P, EprofPass, St)
-            end;
-          false ->
-            Run0
-        end,
-  case fold_comp(Passes, Run, St1) of
-    {ok,St2} -> comp_ret_ok(St2);
-    {error,St2} -> comp_ret_err(St2)
+  case keyfind(eprof, 1, Opts) of
+    {eprof,EprofPass} ->
+      fun(P, St) ->
+          run_eprof(P, EprofPass, St)
+      end;
+    false ->
+      Run0
   end.
+
+fold_comps([{delay,Ps0}|Passes], Run, Compiles, Opts) ->
+  Ps = select_passes(Ps0, Opts) ++ Passes,
+  fold_comps(Ps, Run, Compiles, Opts);
+fold_comps([{Name,Test,Pass}|Ps], Run, [C|_]=Compiles, Opts) ->
+  case Test(C) of
+    false ->        %Pass is not needed.
+      fold_comps(Ps, Run, Compiles, Opts);
+    true ->         %Run pass in the usual way.
+      fold_comps([{Name,Pass}|Ps], Run, Compiles, Opts)
+  end;
+fold_comps([{type_check, Pass}|Ps], Run, Compiles, Opts) ->
+  case Run({type_check,Pass}, Compiles) of
+    {ok,St1} -> fold_comps(Ps, Run, St1, Opts);
+    {error,_St1} = Error -> Error;
+    {'EXIT',Reason} ->
+      generate_errors(Compiles, crash, type_check, Reason);
+    Other ->
+      generate_errors(Compiles, bad_return, type_check, Other)
+  end;
+fold_comps([{Name,Pass}|Ps], Run, Compiles, Opts) ->
+  {NErrs, Compiles1} =
+    lists:foldl(fun(Compile, {Errs, Acc}) ->
+                    case Run({Name,Pass}, Compile) of
+                      {ok, C1} -> {Errs, Acc ++ [C1]};
+                      {error, C1} -> {Errs + 1, Acc ++ [C1]};
+                      {'EXIT',Reason} ->
+                        {error, C1} =
+                          generate_error(Compile, crash, Name, Reason),
+                        {Errs + 1, Acc ++ [C1]};
+                      Other ->
+                        {error, C1} =
+                          generate_error(Compile, bad_return, Name, Other),
+                        {Errs + 1, Acc ++ [C1]}
+                    end
+                end, {0, []}, Compiles),
+  case NErrs of
+    0 -> fold_comps(Ps, Run, Compiles1, Opts);
+    _ -> {error, Compiles1}
+  end;
+fold_comps([], _Run, Compiles, _Opts) -> {ok, Compiles}.
 
 fold_comp([{delay,Ps0}|Passes], Run, #compile{options=Opts}=St) ->
   Ps = select_passes(Ps0, Opts) ++ Passes,
@@ -320,15 +395,26 @@ fold_comp([{Name,Test,Pass}|Ps], Run, St) ->
 fold_comp([{Name,Pass}|Ps], Run, St0) ->
   case Run({Name,Pass}, St0) of
     {ok,St1} -> fold_comp(Ps, Run, St1);
-    {error,_St1} = Error -> Error;
+    {error,_St1} = Error ->
+      Error;
     {'EXIT',Reason} ->
-      Es = [{St0#compile.ifile,[{none,?MODULE,{crash,Name,Reason}}]}],
-      {error,St0#compile{errors=St0#compile.errors ++ Es}};
+      generate_error(St0, crash, Name, Reason);
     Other ->
-      Es = [{St0#compile.ifile,[{none,?MODULE,{bad_return,Name,Other}}]}],
-      {error,St0#compile{errors=St0#compile.errors ++ Es}}
+      generate_error(St0, bad_return, Name, Other)
   end;
 fold_comp([], _Run, St) -> {ok,St}.
+
+
+generate_errors(Compiles, Crash, Name, Reason) ->
+  {error,
+   lists:foldl(fun(St0, Acc) ->
+                   {error, St1} = generate_error(St0, Crash, Name, Reason),
+                   Acc ++ [St1]
+               end, [], Compiles)}.
+
+generate_error(St0, Crash, Name, Reason) ->
+  Es = [{St0#compile.ifile, [{none, ?MODULE, {Crash, Name, Reason}}]}],
+  {error,St0#compile{errors=St0#compile.errors ++ Es}}.
 
 run_tc({Name,Fun}, St) ->
   T1 = erlang:monotonic_time(),
@@ -351,6 +437,10 @@ run_eprof({Name,Fun}, Name, St) ->
 run_eprof({_,Fun}, _, St) ->
   catch Fun(St).
 
+comp_ret_ok([_|_] = Compiles) ->
+  lists:foreach(fun(Compile) ->
+                    comp_ret_ok(Compile)
+                end, Compiles);
 comp_ret_ok(#compile{code=Code,warnings=Warn0,module=Mod,options=Opts}=St) ->
   case werror(St) of
     true ->
@@ -377,6 +467,17 @@ comp_ret_ok(#compile{code=Code,warnings=Warn0,module=Mod,options=Opts}=St) ->
       list_to_tuple([ok,Mod|Ret2])
   end.
 
+comp_ret_err([_|_] = Compiles) ->
+  Errors =
+    lists:map(fun(Compile) ->
+                  comp_ret_err(Compile)
+              end, Compiles),
+  Errors1 = lists:filter(fun(E) -> E =/= error end, Errors),
+  case length(Errors1) of
+    0 -> error;
+    1 -> hd(Errors1);
+    _ -> Errors1
+  end;
 comp_ret_err(#compile{warnings=Warn0,errors=Err0,options=Opts}=St) ->
   Warn = messages_per_file(Warn0),
   Err = messages_per_file(Err0),
@@ -1002,15 +1103,27 @@ add_default_base(St, Forms) ->
       St
   end.
 
-type_check(St) ->
-  Input = [{St#compile.ifile, St#compile.code}],
-  case type_check:module(Input, St#compile.options) of
-    {ok,Ws} ->
-      {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
-    {error,Es,Ws} ->
-      {error,St#compile{warnings=St#compile.warnings ++ Ws,
-                        errors=St#compile.errors ++ Es}}
+type_check(Compiles) ->
+  {Input, Opts} =
+    case Compiles of
+      [H|_] -> {[{C#compile.ifile, C#compile.code, C}
+                 || C <- Compiles], H#compile.options};
+      _ -> {[{Compiles#compile.ifile, Compiles#compile.code, Compiles}],
+            Compiles#compile.options}
+    end,
+  case type_check:module(Input, Opts) of
+    {ok, Rs} ->
+      {ok, type_check_result(Rs)};
+    {error, Rs} ->
+      {error, type_check_result(Rs)}
   end.
+
+type_check_result({Ws, Es, C=#compile{warnings = Ws1, errors = Es1}}) ->
+  C#compile{warnings = Ws ++ Ws1, errors = Es ++ Es1};
+type_check_result([Rs]) ->
+  type_check_result(Rs);
+type_check_result([_|_] = Rs) when is_list(Rs) ->
+  [type_check_result(R) || R <- Rs].
 
 lint_module(St) ->
   case erl_lint:module(St#compile.code,

@@ -118,8 +118,8 @@ meta_var(Type, L) ->
 new_local_scope(Name) ->
   #local_scope{name = Name}.
 
-new_module_scope(Filename, Forms) ->
-  #module_scope{filename = Filename, forms = Forms}.
+new_module_scope(Filename, Forms, Compile) ->
+  #module_scope{filename = Filename, forms = Forms, compile_record = Compile}.
 
 outer_scope(#local_scope{outer_scope = OS}) ->
   OS.
@@ -188,6 +188,9 @@ warnings(#module_scope{warnings = Ws}) ->
 
 warnings(State=#state{current_module = CM}, Ws) ->
   State#state{current_module = CM#module_scope{warnings = Ws}}.
+
+compile_record(#module_scope{compile_record = CR}) ->
+  CR.
 
 %%*.---------------------------------------------------------------------------
 

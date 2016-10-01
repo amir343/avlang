@@ -44,6 +44,7 @@
         , type_used_loc       = dict:new()
           %% {Key, [Line]}
         , warnings            = []
+        , compile_record      = nil
         }).
 
 -record(meta_var,

@@ -23,35 +23,36 @@ all() ->
 test_record() ->
   FileName = "record_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module([{FileName, AbsForms}], []).
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 
 test_binary() ->
   FileName = "binary_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module([{FileName, AbsForms}], []).
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 
 test_misc() ->
   FileName = "misc_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module([{FileName, AbsForms}], []).
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 
 test_type_syntax() ->
   FileName = "type_syntax_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module([{FileName, AbsForms}], []).
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 
 test_function_pointer() ->
   FileName = "function_pointer_test.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, []} = type_check:module([{FileName, AbsForms}], []).
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 
 test_multiple_input() ->
   FileName1 = "function_pointer_test.erl",
   FileName2 = "misc_test.erl",
   AbsForms1 = abstract_forms_for_module(FileName1),
   AbsForms2 = abstract_forms_for_module(FileName2),
-  {ok, []} = type_check:module([ {FileName1, AbsForms1}
-                               , {FileName2, AbsForms2}], []).
+  {ok, [{[], [], nil}, {[], [], nil}]} =
+    type_check:module([ {FileName1, AbsForms1, nil}
+                      , {FileName2, AbsForms2, nil}], []).
 
 abstract_forms_for_module(FileName) ->
   TestDir = code:lib_dir(type_checker, test),
