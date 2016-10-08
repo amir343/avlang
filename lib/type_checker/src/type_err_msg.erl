@@ -177,6 +177,12 @@ format_error0({can_not_infer_type_fun, NN, Ar}) ->
     [pp_expr(NN), Ar]
    );
 
+format_error0({can_not_infer_type_fun, M, NN, Ar}) ->
+  io_lib:format(
+    "Can not infer type for ~p:~s/~p or function does not exist",
+    [M, pp_expr(NN), Ar]
+   );
+
 format_error0({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
   io_lib:format(
     "~s argument in function call '~p/~p' has non-matching types, " ++

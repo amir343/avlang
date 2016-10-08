@@ -68,8 +68,7 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
             ">>>>>>>>>>>>>>>>>>>> PASS ~p <<<<<<<<<<<<<<<<<<<<<~n", [PassN]),
 
   {State1, Undefs} =
-    lists:foldl(fun({M, MS}, {St0, Undefs0}) ->
-                    debug_log(State, "Type checking module '~p'~n", [M]),
+    lists:foldl(fun({_M, MS}, {St0, Undefs0}) ->
                     St1 = state_dl:current_module(St0, MS),
                     St2 = type_check0(St1),
                     St3 = state_dl:save_current_module_scope(St2),
@@ -78,6 +77,8 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
                     {St3, Undefs0 + UndefinedTypes + NErros}
                 end, {State, 0},
                 dict:to_list(state_dl:module_scopes(State))),
+
+  debug_log(State, "Number of undefined types and erros: ~p~n", [Undefs]),
 
   %% Only for sake of debugging
   debug_log(State,
@@ -92,8 +93,6 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
                       end, dict:to_list(state_dl:global(MS)))
     end,
     dict:to_list(state_dl:module_scopes(State1))),
-
-  debug_log(State, "Number of undefined types and erros: ~p~n", [Undefs]),
 
   State2 = state_dl:first_pass(State1, false),
   StateWithNoErrors =
@@ -578,9 +577,10 @@ type_check0(S0=#state{}) ->
   S1     = type_check1(Forms, S0),
   Errs0  = state_dl:errors(S1),
   LS     = state_dl:locals(S1),
+  Name   = state_dl:module_name(S1),
 
   case type_check_compiler_opts:dump_local_scopes(Opts) of
-    true -> dump_local_scopes(LS);
+    true -> dump_local_scopes(Name, LS);
     false -> ok
   end,
 
@@ -620,7 +620,7 @@ type_check1([_ | Fs], State) ->
 
 %% Returns [{clause, fun_type}]
 match_clauses_with_sig(N, A, Cls, State) ->
-  Sig = find_fun_sig(N, A, State),
+  Sig = find_fun_sig([N, A, State]),
   case Sig of
     undefined ->
       {lists:map(fun(E) -> {E, undefined} end, Cls), State};
@@ -837,7 +837,7 @@ type_check_clause_guard(Gs, State0=#state{}) ->
                        {TG, S1} = type_check_expr(G, S0),
                        assert_guard_type(G, TG, S1)
                    end, State1, GSeqs),
-  state_dl:fun_lookup(State2, standard_fun_lookup_priorities()).
+  state_dl:fun_lookup(State2, nil).
 
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, State0) ->
@@ -998,7 +998,7 @@ type_of({tuple, L, Es}, State0) ->
   {assert_tuple_validity(TEs, L), State1};
 
 type_of({'fun', L, {function, N, A}}, State0) ->
-  case find_fun_type_in_global(N, A, State0) of
+  case find_fun_type_in_global([N, A, State0]) of
     [] ->
       Msg = {function_pointer_not_found, N, A},
       {undefined, state_dl:update_errors(State0, L, Msg)};
@@ -1025,6 +1025,51 @@ type_of({'fun', L, {clauses, [{clause, _, Args, _, _} | _] = Cls}}, State0) ->
   {FTypes, State3} = infer_function_type({N, A}, InferredTypeFSig, State2),
   {FTypes, validate_fun_type({N, A, L}, FTypes, State3)};
 
+%% remote calls
+type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
+  Arity = length(Args),
+  {M00, State01} = type_of(M0, State0),
+  {F00, State1} = type_of(F0, State01),
+
+  M = case M00 of
+        undefined -> undefined;
+        {_, M1} -> M1;
+        _ -> element(3, M0)
+      end,
+  F = case F00 of
+        undefined -> undefined;
+        {_, F1} -> F1;
+        _ -> element(3, F0)
+      end,
+  FunLookup =
+    case state_dl:fun_lookup(State1) of
+      nil     -> standard_remote_fun_lookup_priorities();
+      FLookup -> FLookup
+    end,
+  FTypes = find_fun_type([M, F, Arity, State1], FunLookup),
+  State2 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State1),
+  {TypedArgs, State3} = lists:foldl(fun(Arg, {Ts, S0}) ->
+                                         {T, S1} = type_of(Arg, S0),
+                                         {Ts ++ [T], S1}
+                                     end, {[], State2}, Args),
+
+  Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
+  Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
+
+  case length(Matches) of
+    0 ->
+      {undefined,
+       state_dl:update_errors(State3, L,
+                              {can_not_infer_type_fun, M, F, Arity})};
+    1 ->
+      {fun_type, _, O} = element(3, hd(Matches)),
+      {O, State3};
+    _ ->
+      MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
+      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
+      {undefined, state_dl:update_errors(State3, [Err])}
+  end;
+
 %% local calls
 type_of({call, L, NN, Args}, State0) ->
   Arity = length(Args),
@@ -1034,7 +1079,12 @@ type_of({call, L, NN, Args}, State0) ->
         {_, N1} -> N1;
         _ -> element(3, NN)
       end,
-  FTypes = find_fun_type(N, Arity, State1),
+  FunLookup =
+    case state_dl:fun_lookup(State1) of
+      nil -> standard_fun_lookup_priorities();
+      FLookup -> FLookup
+    end,
+  FTypes = find_fun_type([N, Arity, State1], FunLookup),
   State2 = assert_found_fun_type(FTypes, L, NN, Arity, State1),
   {TypedArgs, State3} = lists:foldl(fun(Arg, {Ts, S0}) ->
                                          {T, S1} = type_of(Arg, S0),
@@ -1420,6 +1470,12 @@ assert_found_vt(L, S=#state{}, VTs) ->
                 end, [], VTs),
   state_dl:update_errors(S, Errs).
 
+assert_found_remote_fun_type(undefined, L, M, N, Ar, S=#state{}) ->
+  state_dl:update_errors(S,
+                         [{L, ?TYPE_MSG, {can_not_infer_type_fun, M, N, Ar}}]);
+assert_found_remote_fun_type(_, _, _, _, _, S) ->
+  S.
+
 assert_found_fun_type(undefined, L, NN, Ar, S=#state{}) ->
   state_dl:update_errors(S, [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]);
 assert_found_fun_type(_, _, _, _, S) ->
@@ -1607,8 +1663,11 @@ update_global(S=#state{}, N, Ar, FTypes) ->
                end,
   state_dl:global(S, dict:store(N, FsExceptN ++ [FTypes], GS)).
 
-find_fun_type_in_global(N, Ar, State=#state{}) ->
+find_fun_type_in_global([N, Ar, State=#state{}]) ->
   GS = state_dl:global(State),
+  find_fun_type_in_global0(N, Ar, GS).
+
+find_fun_type_in_global0(N, Ar, GS) ->
   case dict:find(N, GS) of
     {ok, FList} ->
       lists:flatten(
@@ -1616,7 +1675,15 @@ find_fun_type_in_global(N, Ar, State=#state{}) ->
     error -> []
   end.
 
-find_fun_type_in_local(N, Ar, State=#state{}) ->
+find_fun_type_in_remote([M, N, Ar, State=#state{}]) ->
+  case state_dl:module_scope(M, State) of
+    nil -> [];
+    MS  ->
+      GS = state_dl:global(MS),
+      find_fun_type_in_global0(N, Ar, GS)
+  end.
+
+find_fun_type_in_local([N, Ar, State=#state{}]) ->
   LS = state_dl:local(State),
   case dict:find(N, state_dl:vars(LS)) of
     {ok, #meta_var{type = FList}} ->
@@ -1629,7 +1696,7 @@ find_fun_type_in_local(N, Ar, State=#state{}) ->
   end.
 
 %% Returns {fun_sig, L, N, T} | undefined
-find_fun_sig(N, A, State=#state{}) ->
+find_fun_sig([N, A, State=#state{}]) ->
   case dict:find(N, state_dl:fun_sigs(State)) of
     {ok, Vs} ->
       hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
@@ -1637,7 +1704,7 @@ find_fun_sig(N, A, State=#state{}) ->
     error -> undefined
   end.
 
-find_fun_type_in_guards(N, A, State=#state{}) ->
+find_fun_type_in_guards([N, A, State=#state{}]) ->
   case dict:find(N, state_dl:guard_types(State)) of
     {ok, Vs} ->
       hd([FS || {fun_sig, _, _, T} = FS <- Vs, fun_arity(T) =:= A]
@@ -1645,39 +1712,44 @@ find_fun_type_in_guards(N, A, State=#state{}) ->
     error -> undefined
   end.
 
+standard_remote_fun_lookup_priorities() ->
+  [ fun find_fun_type_in_erlang_types/1
+  , fun find_fun_type_in_remote/1
+  ].
+
 standard_fun_lookup_priorities() ->
-  [ fun find_local_fun_type_in_erlang_types/3
-  , fun find_fun_type_in_local/3
-  , fun find_fun_type_in_global/3
-  , fun find_fun_sig/3].
+  [ fun find_local_fun_type_in_erlang_types/1
+  , fun find_fun_type_in_local/1
+  , fun find_fun_type_in_global/1
+  , fun find_fun_sig/1
+  ].
 
 guard_fun_lookup_priorities() ->
-  [ fun find_fun_type_in_guards/3 ].
+  [ fun find_fun_type_in_guards/1 ].
 
 %% First checks to see if there exits a type definition in erlang types
 %% then in global scope and finally in function signature
-find_fun_type(N, Ar, State=#state{}) ->
-  Priorities = state_dl:fun_lookup(State),
-  case find_fun_type0(Priorities, N, Ar, State) of
+find_fun_type(Args, Priorities) ->
+  case find_fun_type0(Priorities, Args) of
     {fun_sig, _, _, T} -> T;
     undefined -> [undefined];
     Other -> Other
   end.
 
-find_fun_type0([], _, _, _) ->
+find_fun_type0([], _) ->
   undefined;
-find_fun_type0([F | T], N, Ar, State) ->
-  case F(N, Ar, State) of
+find_fun_type0([F | T], Args) ->
+  case F(Args) of
     [] ->
-      find_fun_type0(T, N, Ar, State);
+      find_fun_type0(T, Args);
     Other ->
       Other
   end.
 
-find_local_fun_type_in_erlang_types(N, Ar, State) ->
-  find_fun_type_in_erlang_types(nil, N, Ar, State).
+find_local_fun_type_in_erlang_types([N, Ar, State]) ->
+  find_fun_type_in_erlang_types([nil, N, Ar, State]).
 
-find_fun_type_in_erlang_types(M, N, Ar, State=#state{}) ->
+find_fun_type_in_erlang_types([M, N, Ar, State=#state{}]) ->
   Key = case M of
           nil -> atom_to_list(N);
           _   -> atom_to_list(M) ++ "_" ++ atom_to_list(N)
@@ -1702,7 +1774,8 @@ debug_log0(CompilerOpts, Format, Args) ->
       ok
   end.
 
-dump_local_scopes(LsDict) ->
+dump_local_scopes(Name, LsDict) ->
+  io:format("~.10c ~p ~.70c~n", [$=, Name, $=]),
   io:format("~.55c~n", [$-]),
   LS = dict:to_list(LsDict),
   [dump_local_scope(L) ||

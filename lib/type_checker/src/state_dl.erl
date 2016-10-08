@@ -89,7 +89,10 @@ last_ftype(LS=#local_scope{}, LF) ->
   LS#local_scope{last_ftype = LF}.
 
 local(#state{current_module = #module_scope{local = L}}) ->
+  L;
+local(#module_scope{local = L}) ->
   L.
+
 local(State=#state{current_module = CM}, L) ->
   State#state{current_module = CM#module_scope{local = L}}.
 
@@ -106,6 +109,12 @@ local_scope_name(LS=#local_scope{}, Name) ->
 module_scope(State=#state{module_scopes = MS}, ModuleName, ModuleScope) ->
   NMS = dict:store(ModuleName, ModuleScope, MS),
   State#state{module_scopes = NMS}.
+
+module_scope(ModuleName, #state{module_scopes = MS}) ->
+  case dict:find(ModuleName, MS) of
+    {ok, M} -> M;
+    error   -> nil
+  end.
 
 module_name(#state{current_module = #module_scope{module_name = M}}) ->
   M.
