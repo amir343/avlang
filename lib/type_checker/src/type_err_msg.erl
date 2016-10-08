@@ -26,25 +26,25 @@ format_error0({duplicate_fun_sig_decl, N, L1, L2}) ->
 format_error0({duplicate_type_alias_decl, N, L1, L2}) ->
   io_lib:format(
     "Type alias definition '~w' at line ~p is already defined with "
-    ++ "the same name at ~p.",
+    "the same name at ~p.",
     [N, L2, L1]);
 
 format_error0({duplicate_type_cons_decl, N, L1, L2}) ->
   io_lib:format(
     "Type constructor definition '~w' at line ~p is already defined"
-    ++  " with same name at ~p.",
+     " with same name at ~p.",
     [N, L2, L1]);
 
 format_error0({no_fun_decl_found_for_sig, N, L2}) ->
   io_lib:format(
     "No function implementation found for declared function signature '~w' "
-    ++ "at line ~p.",
+    "at line ~p.",
     [N, L2]);
 
 format_error0({no_matching_fun_decl_for_fun_sig, N, Ar, L2}) ->
   io_lib:format(
     "No function implementation matched with declared function signature "
-    ++ "'~w'/~p at line ~p.",
+    "'~w'/~p at line ~p.",
     [N, Ar, L2]);
 
 format_error0({fun_sig_clause_arity_not_match, N}) ->
@@ -55,7 +55,7 @@ format_error0({fun_sig_clause_arity_not_match, N}) ->
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
     "Multiple function implementations matched with declared function"
-    ++ " signature '~w' at line ~p. This is a fatal error in compiler!",
+    " signature '~w' at line ~p. This is a fatal error in compiler!",
     [N, L2]);
 
 format_error0({duplicate_record_type, N, L1, L2}) ->
@@ -82,7 +82,7 @@ format_error0({none_matching_record_type, N}) ->
 format_error0({fun_head_fun_sig_size_mismatch, N, M, Name, Arity}) ->
   io_lib:format(
     "Declared function signature for ~p/~p has different head size than"
-    ++ " the function declaration: ~p vs. ~p",
+    " the function declaration: ~p vs. ~p",
     [Name, Arity, M, N]);
 
 format_error0({inferred_conflicting_types, V, T1, T2}) ->
@@ -103,19 +103,19 @@ format_error0({undefined_type, N}) ->
 format_error0({tc_generic_type_not_used_rhs, Ts}) ->
   io_lib:format(
     "Generic type parameter(s) ~s is not used in the right hand side of"
-    ++ " type constructor",
+    " type constructor",
     [list_to_string(Ts, "")]);
 
 format_error0({tc_generic_type_not_used_lhs, Ts}) ->
   io_lib:format(
     "Generic type parameter(s) ~s is not defined in the left hand side of"
-    ++ " type constructor",
+    " type constructor",
     [list_to_string(Ts, "")]);
 
 format_error0({tc_only_generic_type_lhs, TI}) ->
   io_lib:format(
     "Only generic type parameters are allowed in left hand side of "
-    ++ "type constructor definitions. ~s has/have violated this rule.",
+    "type constructor definitions. ~s has/have violated this rule.",
     [list_to_string(TI, "")]);
 
 format_error0({declared_inferred_not_match, Var, Declared, Inferred}) ->
@@ -175,6 +175,12 @@ format_error0({can_not_infer_type_fun, NN, Ar}) ->
   io_lib:format(
     "Can not infer type for ~s/~p or function does not exist",
     [pp_expr(NN), Ar]
+   );
+
+format_error0({can_not_infer_type_fun, M, NN, Ar}) ->
+  io_lib:format(
+    "Can not infer type for ~p:~s/~p or function does not exist",
+    [M, pp_expr(NN), Ar]
    );
 
 format_error0({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
