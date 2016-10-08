@@ -1,0 +1,83 @@
+#!/bin/bash
+
+set -u
+
+TYPE_CHECK=lib/type_checker
+COMPILER=lib/compiler
+KERNEL=lib/kernel
+STDLIB=lib/stdlib
+
+function compile_app {
+    [[ -z "$1" ]] && echo "No input given to compile function" && exit 1
+    local rc=0
+    make $1
+}
+
+function compile {
+    for i in type_checker compiler stdlib kernel; do
+        compile_app $i
+        [[ $? -ne 0 ]] && echo "Failed to compile $i" && exit 1
+    done
+}
+
+function shell {
+    bootstrap/bin/erl \
+        -pa ${TYPE_CHECK}/ebin \
+        -pa ${COMPILER}/ebin \
+        -pa ${KERNEL}/ebin \
+        -pa ${STDLIB}/ebin
+}
+
+function evaluate {
+    [[ -z "$1" ]] && echo "No input given to eval" && exit 1
+
+    bootstrap/bin/erl \
+        -hidden -noshell -sname test -connect_all false \
+        -pa ${TYPE_CHECK}/ebin \
+        -pa ${COMPILER}/ebin \
+        -pa ${KERNEL}/ebin \
+        -pa ${STDLIB}/ebin \
+        -eval $1
+}
+
+function run_test {
+    bootstrap/bin/erlc \
+        -pa ${TYPE_CHECK}/ebin -o ${TYPE_CHECK}/ebin \
+        ${TYPE_CHECK}/test/type_check_SUITE.erl \
+        ${TYPE_CHECK}/test/run_test.erl
+
+    bootstrap/bin/erl \
+        -pa ${TYPE_CHECK}/ebin \
+        -pa ${STDLIB}/ebin \
+        -pa ${COMPILER}/ebin \
+        -pa ${KERNEL}/ebin \
+        -noshell \
+        -s run_test run
+}
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+
+    case $key in
+        compile)
+            compile
+            shift
+            ;;
+        shell)
+            shell
+            shift
+            ;;
+        eval)
+            shift
+            evaluate $1
+            shift
+            ;;
+        test)
+            run_test
+            shift
+            ;;
+        *)
+            # unknown option
+            ;;
+    esac
+done
