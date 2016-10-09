@@ -6,6 +6,7 @@
 -record(state,
         {
           compiler_opts       = []
+        , export_whitelist    = gb_sets:new()
         , erlang_types        = dict:new()
         , first_pass          = true
         , guard_types         = dict:new()
@@ -18,9 +19,11 @@
 -record(module_scope,
         {
           module_name         = nil
+        , compiler_options    = gb_sets:new()
         , declared_fun        = dict:new()
           %% {Key, [{function, ...}]}
         , errors              = []
+        , exports             = gb_sets:new()
         , filename            = nil
         , forms               = []
         , fun_lookup          = []
