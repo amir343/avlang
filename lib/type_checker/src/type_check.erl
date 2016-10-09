@@ -40,9 +40,10 @@ run_passes([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
     St0   = state_dl:compiler_opts(state_dl:new_state(), Opts1),
     St1   = state_dl:erlang_types(St0, bootstrap_erlang_types()),
     St2   = state_dl:guard_types(St1, erlang_guard_signature()),
-    St3   = run_one_time_passes(FileNameForms, St2, Opts),
-    St4   = type_check_loop(1, St3, infinity),
-    format_result(St4)
+    St3   = state_dl:export_whitelist(St2, export_whitelist()),
+    St4   = run_one_time_passes(FileNameForms, St3, Opts),
+    St5   = type_check_loop(1, St4, infinity),
+    format_result(St5)
   catch
     _:L when is_list(L) -> {error, L, []};
     EE:Err ->
@@ -183,7 +184,7 @@ bootstrap_erlang_types() ->
   {Sigs, _} =
     lists:foldl(
       fun({fun_remote_sig, _, M, N, Ts}, {Dict1, Dict2}) ->
-          Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
+          Key = atom_to_list(M) ++ ":" ++ atom_to_list(N),
           {dict:append(Key,
                        [substitute_type_alias(T, Dict2) || T <- Ts]
                       , Dict1), Dict2};
@@ -195,6 +196,11 @@ bootstrap_erlang_types() ->
           {Dict1, dict:store(N, substitute_type_alias(T, Dict2), Dict2)}
       end, {dict:new(), dict:new()}, ParsedSignature),
   Sigs.
+
+export_whitelist() ->
+  PrivDir = code:lib_dir(type_checker, priv),
+  {ok, [Term | _]} = file:consult(filename:join(PrivDir, "export_whitelist")),
+  gb_sets:from_list(Term).
 
 erlang_guard_signature() ->
   PrivDir = code:lib_dir(type_checker, priv),
@@ -252,6 +258,9 @@ collect_types([{attribute, _, module, Module} | Forms], St0) ->
 collect_types([{attribute, _, compile, Opts} | Forms], St0) ->
   St1 = insert_compiler_options(St0, Opts),
   collect_types(Forms, St1);
+collect_types([{attribute, _, export, Exports} | Forms], St0) ->
+  St1 = state_dl:exports(St0, Exports),
+  collect_types(Forms, St1);
 collect_types([{attribute, _, record, RecDef} | Forms], St0) ->
   collect_types(Forms, add_record_def(RecDef, St0));
 collect_types([{fun_sig, L, _, Ts} = Form | Forms], St0) ->
@@ -281,10 +290,11 @@ collect_types([], St) ->
   St.
 
 insert_compiler_options(St=#state{}, Options) ->
-  Opts = state_dl:compiler_opts(St),
+  Opts  = state_dl:compiler_opts(St),
+  St1   = state_dl:compiler_options(St, Options),
   Opts1 = type_check_compiler_opts:options_of_interest(Options),
   Opts2 = gb_sets:to_list(gb_sets:from_list(Opts ++ Opts1)),
-  state_dl:compiler_opts(St, Opts2).
+  state_dl:compiler_opts(St1, Opts2).
 
 %% Extract user defined types given at line L and associate each one with
 %% line L in the returned state.type_used_loc.
@@ -432,7 +442,7 @@ add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{}) ->
 %% an error if this function signature is already defined.
 add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F, St=#state{}) ->
   FS = state_dl:remote_fun_sigs(St),
-  Key = atom_to_list(M) ++ "_" ++ atom_to_list(N),
+  Key = atom_to_list(M) ++ ":" ++ atom_to_list(N),
   case dict:find(Key, FS) of
     {ok, Vs} ->
       Ar = fun_arity(F),
@@ -787,7 +797,9 @@ update_undefined(S0=#state{}) ->
   UnDefsInnerScopes =
     lists:sum([count_undefined_local_scope(IS) || IS <- InnerScopes]),
   UnDefs1 = count_undefined_local_scope(L),
-  state_dl:update_undefined_types_in_local(UnDefs1 + UnDefsInnerScopes, S0).
+  Errors = length(state_dl:errors(S0)),
+  state_dl:update_undefined_types_in_local(UnDefs1 + UnDefsInnerScopes + Errors,
+                                           S0).
 
 type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, State0) ->
   State1  = type_check_clause_guard(G, State0),
@@ -1473,8 +1485,27 @@ assert_found_vt(L, S=#state{}, VTs) ->
 assert_found_remote_fun_type(undefined, L, M, N, Ar, S=#state{}) ->
   state_dl:update_errors(S,
                          [{L, ?TYPE_MSG, {can_not_infer_type_fun, M, N, Ar}}]);
-assert_found_remote_fun_type(_, _, _, _, _, S) ->
-  S.
+assert_found_remote_fun_type(_FTypes, L, M, N, Ar, S=#state{}) ->
+  case gb_sets:is_member(M, state_dl:export_whitelist(S)) of
+    false -> assert_export_function(M, N, Ar, L, S);
+    true  -> S
+  end.
+
+assert_export_function(M, N, Ar, L, S=#state{}) ->
+  case state_dl:module_scope(M, S) of
+    nil ->
+      S;
+    MS  ->
+      Exports = state_dl:exports(MS),
+      Exported = gb_sets:is_member({N, Ar}, Exports) orelse
+        gb_sets:is_member(export_all, state_dl:compiler_options(MS)),
+      case Exported of
+        false ->
+          state_dl:update_errors(S, L, {function_not_exported, M, N, Ar});
+        true ->
+          S
+      end
+  end.
 
 assert_found_fun_type(undefined, L, NN, Ar, S=#state{}) ->
   state_dl:update_errors(S, [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]);
@@ -1752,7 +1783,7 @@ find_local_fun_type_in_erlang_types([N, Ar, State]) ->
 find_fun_type_in_erlang_types([M, N, Ar, State=#state{}]) ->
   Key = case M of
           nil -> atom_to_list(N);
-          _   -> atom_to_list(M) ++ "_" ++ atom_to_list(N)
+          _   -> atom_to_list(M) ++ ":" ++ atom_to_list(N)
         end,
   ETypes = state_dl:erlang_types(State),
   case dict:find(Key, ETypes) of

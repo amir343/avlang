@@ -13,6 +13,11 @@ erlang_types(#state{erlang_types = ET}) ->
 erlang_types(State=#state{}, ET) ->
   State#state{erlang_types = ET}.
 
+export_whitelist(#state{export_whitelist = EW}) ->
+  EW.
+export_whitelist(State=#state{}, EW) ->
+  State#state{export_whitelist = EW}.
+
 guard_types(#state{guard_types = GT}) ->
   GT.
 guard_types(State=#state{}, GT) ->
@@ -33,6 +38,12 @@ module_scopes(#state{module_scopes = MS}) ->
 
 %%*.---------------------------------------------------------------------------
 
+compiler_options(#module_scope{compiler_options = CO}) ->
+  CO.
+compiler_options(State=#state{current_module = CM}, CO) ->
+  NCO = gb_sets:union(CM#module_scope.compiler_options, gb_sets:from_list(CO)),
+  State#state{current_module = CM#module_scope{compiler_options = NCO}}.
+
 current_module(#state{current_module = CM}) ->
   CM.
 current_module(State=#state{}, CM) ->
@@ -52,6 +63,12 @@ errors(State=#state{current_module = CM}, Errs) ->
   State#state{current_module = CM#module_scope{errors = Errs}};
 errors(CM=#module_scope{}, Errs) ->
   CM#module_scope{errors = Errs}.
+
+exports(#module_scope{exports = Exps}) ->
+  Exps.
+exports(State=#state{current_module = CM}, Exports) ->
+  NExports = gb_sets:union(CM#module_scope.exports, gb_sets:from_list(Exports)),
+  State#state{current_module = CM#module_scope{exports = NExports}}.
 
 fun_sigs(#state{current_module = #module_scope{fun_sigs = FS}}) ->
   FS.

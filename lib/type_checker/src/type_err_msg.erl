@@ -171,6 +171,11 @@ format_error0({multiple_inferred_type, Expr, Ts}) ->
     "Multiple types can be inferred for '~s':~n\t\t~s",
     [pp_expr(Expr), list_to_string_sep([pp_type(T) || T <- Ts], ", ")]);
 
+format_error0({function_not_exported, M, N, Ar}) ->
+  io_lib:format(
+    "Calling non-exported function ~p:~p/~p",
+    [M, N, Ar]);
+
 format_error0({can_not_infer_type_fun, NN, Ar}) ->
   io_lib:format(
     "Can not infer type for ~s/~p or function does not exist",
