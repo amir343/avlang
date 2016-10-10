@@ -267,6 +267,9 @@ list_to_string([H|[_] = T], Res) ->
 pp_type({terl_type, T}) ->
   io_lib:format("~s", [T]);
 
+pp_type({terl_generic_type, T}) ->
+  io_lib:format("'~s'", [T]);
+
 pp_type({list_type, T}) ->
   io_lib:format("[~s]", [pp_type(T)]);
 

@@ -1058,12 +1058,12 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
       nil     -> standard_remote_fun_lookup_priorities();
       FLookup -> FLookup
     end,
-  FTypes = find_fun_type([M, F, Arity, State1], FunLookup),
-  State2 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State1),
-  {TypedArgs, State3} = lists:foldl(fun(Arg, {Ts, S0}) ->
+  {TypedArgs, State2} = lists:foldl(fun(Arg, {Ts, S0}) ->
                                          {T, S1} = type_of(Arg, S0),
                                          {Ts ++ [T], S1}
-                                     end, {[], State2}, Args),
+                                     end, {[], State1}, Args),
+  FTypes = find_fun_type([M, F, Arity, State2], FunLookup),
+  State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State2),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
   Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
@@ -1096,12 +1096,12 @@ type_of({call, L, NN, Args}, State0) ->
       nil -> standard_fun_lookup_priorities();
       FLookup -> FLookup
     end,
-  FTypes = find_fun_type([N, Arity, State1], FunLookup),
-  State2 = assert_found_fun_type(FTypes, L, NN, Arity, State1),
-  {TypedArgs, State3} = lists:foldl(fun(Arg, {Ts, S0}) ->
+  {TypedArgs, State2} = lists:foldl(fun(Arg, {Ts, S0}) ->
                                          {T, S1} = type_of(Arg, S0),
                                          {Ts ++ [T], S1}
-                                     end, {[], State2}, Args),
+                                     end, {[], State1}, Args),
+  FTypes = find_fun_type([N, Arity, State2], FunLookup),
+  State3 = assert_found_fun_type(FTypes, L, NN, Arity, State2),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
   Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
@@ -1346,7 +1346,7 @@ generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
     lists:foldl(
       fun(Arg, {Acc, Ind}) ->
           case Arg of
-            true -> {Acc, Ind + 1};
+            {true, _, _} -> {Acc, Ind + 1};
             {false, Got, Expected} ->
               {Acc ++
                  [{L, ?TYPE_MSG,
@@ -1363,14 +1363,10 @@ find_exact_match(_, undefined) ->
 find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
   Res =
     lists:foldl(fun({T1, T2}, L) ->
-                    case type_internal:sub_type_of(T1, T2) of
-                      true  -> L ++ [true];
-                      false -> L ++ [{false, T1, T2}]
-                    end
+                    L ++ [{type_internal:sub_type_of(T1, T2), T1, T2}]
                 end, [], lists:zip(TypedArgs, Is)),
 
-  {lists:all(fun(E) -> E =:= true
-                 end, Res), Res, FType}.
+  {lists:all(fun({E, _, _}) -> E =:= true end, Res), Res, FType}.
 
 dispatch(TL, Op, TR) ->
   dispatch_result(type_internal:dispatch(TL, Op, TR)).
