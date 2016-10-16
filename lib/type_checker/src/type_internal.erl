@@ -1,3 +1,4 @@
+
 -module(type_internal).
 
 -export([ built_in/1
@@ -10,6 +11,7 @@
         , extract_user_defined_types/1
         , find_record_type/2
         , find_record_field_type/2
+        , generic_materialisation/2
         , invalid_operator/0
         , lub/1
         , lub/2
@@ -19,6 +21,7 @@
         , tag_built_in/1
         , type_equivalent/2
         , type_map/2
+        , type_mapfold/3
         , type_tag/1
         , type_terminals/1
         , var_terminals/1
@@ -235,6 +238,8 @@ sub_type_of(_, {terl_type, 'Term'}) ->
   true;
 sub_type_of(_, {terl_type, 'Any'}) ->
   true;
+sub_type_of(_, {terl_generic_type, _}) ->
+  true;
 sub_type_of({terl_atom_type, _}, {terl_type, 'Atom'}) ->
   true;
 sub_type_of({terl_atom_type, true}, {terl_type, 'Boolean'}) ->
@@ -252,10 +257,6 @@ sub_type_of(_, _) ->
 eliminate(LHS, T, State) ->
   eliminate(LHS, T, [], State).
 
-eliminate({integer, _, _}, _, Rs, _) ->
-  Rs;
-eliminate({atom, _, _}, _, Rs, _) ->
-  Rs;
 eliminate({var, _, '_'}, _, Rs, _) ->
   Rs;
 eliminate({var, _, _} = V, T, Rs, _) ->
@@ -289,6 +290,78 @@ eliminate_record_type({record, _, N, Ts}, State0=#state{}) ->
               end, [], Ts).
 
 
+generic_materialisation(Generic, T) ->
+  gm(Generic, T, dict:new(), []).
+
+gm([{fun_type, _, _} = FT1], {fun_type, _, _} = FT2, Mappings, Errs) ->
+  gm(FT1, FT2, Mappings, Errs);
+gm({fun_type, _, _} = FT1, [{fun_type, _, _} = FT2], Mappings, Errs) ->
+  gm(FT1, FT2, Mappings, Errs);
+gm([{fun_type, _, _} = FT1], [{fun_type, _, _} = FT2], Mappings, Errs) ->
+  gm(FT1, FT2, Mappings, Errs);
+gm({fun_type, Is1, O1} = FT1, {fun_type, Is2, O2} = FT2, Mappings, Errs) ->
+  case length(Is1) =/= length(Is2) of
+    true -> {FT1, Mappings, Errs ++ [{non_matching_fun_args, FT1, FT2}]};
+    false ->
+      {NIs, NMappings, NErrs} =
+        lists:foldl(fun({I1, I2}, {Acc, M, E}) ->
+                        {T1, M1, E1} = gm(I1, I2, M, E),
+                        {Acc ++ [T1], M1, E1}
+                    end, {[], Mappings, Errs}, lists:zip(Is1, Is2)),
+      {NO, NMappings1, NErrs1} = gm(O1, O2, NMappings, NErrs),
+      {{fun_type, NIs, NO}, NMappings1, NErrs1}
+  end;
+gm({fun_type, Is, O}, TypedArgs, Mappings, Errs) ->
+  {NIs, NMappings, NErrs} =
+    lists:foldl(fun({G, T}, {Acc, M, E}) ->
+                    {T1, M1, E1} = gm(G, T, M, E),
+                    {Acc ++ [T1], M1, E1}
+                end, {[], Mappings, Errs}, lists:zip(Is, TypedArgs)),
+  FoldF =
+    fun({terl_generic_type, T} = GT, Acc) ->
+        case dict:find(T, NMappings) of
+          {ok, Set} ->
+            case gb_sets:to_list(Set) of
+              [V] -> {V, Acc};
+              [_|_] = Vs ->
+                {GT, Acc ++ [{can_not_instantiate_generic_type, T, Vs}]}
+            end;
+          error ->
+            {GT, Acc}
+        end;
+       (W, Acc) ->
+        {W, Acc}
+    end,
+  {NO, NErrs1} = type_mapfold(O, FoldF, NErrs),
+  {{fun_type, NIs, NO}, NMappings, NErrs1};
+gm({terl_generic_type, G}, T, Mappings, Errs) ->
+  OldSet = case dict:find(G, Mappings) of
+             {ok, Set} -> Set;
+             error     -> gb_sets:new()
+           end,
+  NewSet = gb_sets:add(T, OldSet),
+  NMappings = dict:store(G, NewSet, Mappings),
+  {T, NMappings, Errs};
+gm({list_type, T1}, {list_type, T2}, Mappings, Errs) ->
+  {T, NMappings, NErrs} = gm(T1, T2, Mappings, Errs),
+  {{list_type, T}, NMappings, NErrs};
+gm({tuple_type, Ts1}, {tuple_type, Ts2}, Mappings, Errs) ->
+  case length(Ts1) =/= length(Ts2) of
+    true ->
+      {{tuple_type, Ts1}, Mappings, Errs ++
+         [{non_matching_tuple_length, Ts1, Ts2}]};
+    false ->
+      {T, NM, NE} =
+        lists:foldl(fun({T1, T2}, {Acc, M, E}) ->
+                        {TT1, M1, E1} = gm(T1, T2, M, E),
+                        {Acc ++ [TT1], M1, E1}
+                    end, {[], Mappings, Errs}, lists:zip(Ts1, Ts2)),
+      {{tuple_type, T}, NM, NE}
+  end;
+gm(T1, _T2, Mappings, Errs) ->
+  {T1, Mappings, Errs}.
+
+
 ulist({list_type, T}) ->
   T;
 ulist(_) ->
@@ -314,9 +387,45 @@ var_terminals({tuple, _L, Es}, Rs0) ->
 var_terminals(_, W) ->
   W.
 
+type_mapfold({fun_sig, L, N, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{fun_sig, L, N, NTs}, Acc1};
+type_mapfold({fun_remote_sig, L, M, N, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{fun_rempte_sig, L, M, N, NTs}, Acc1};
+type_mapfold({type_alias, L, T}, FoldF, Acc) ->
+  {NT, Acc1} = FoldF(T, Acc),
+  {{type_alias, L, NT}, Acc1};
+type_mapfold({fun_type, Is, O}, FoldF, Acc) ->
+  {NIs, Acc1} = type_mapfold_helper(Is, FoldF, Acc),
+  {NO, Acc2} = FoldF(O, Acc1),
+  {{fun_type, NIs, NO}, Acc2};
+type_mapfold({union_type, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{union_type, NTs}, Acc1};
+type_mapfold({list_type, T}, FoldF, Acc) ->
+  {NT, Acc1} = FoldF(T, Acc),
+  {{list_type, NT}, Acc1};
+type_mapfold({tuple_type, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{tuple_type, NTs}, Acc1};
+type_mapfold({record_type, N, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{record_type, N, NTs}, Acc1};
+type_mapfold({type_instance, N, Ts}, FoldF, Acc) ->
+  {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
+  {{type_instance, N, NTs}, Acc1};
+type_mapfold(T, FoldF, Acc) ->
+  FoldF(T, Acc).
+
+type_mapfold_helper(Ts, FoldF, Acc) ->
+  lists:foldl(fun(T, {TT, Ac}) ->
+                  {NT, Ac1} = type_mapfold(T, FoldF, Ac),
+                  {TT ++ [NT], Ac1}
+              end, {[], Acc}, Ts).
 
 type_map({fun_sig, L, N, Ts}, FMap) ->
-  {fun_sig, L, N, [type_map(T, FMap)|| T <- Ts]};
+  {fun_sig, L, N, [type_map(T, FMap) || T <- Ts]};
 type_map({fun_remote_sig, L, M, N, Ts}, FMap) ->
   {fun_rempte_sig, L, M, N, [type_map(T, FMap) || T <- Ts]};
 type_map({type_alias, L, T}, FMap) ->

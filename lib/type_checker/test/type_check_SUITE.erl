@@ -4,6 +4,7 @@
 -export([ all/0
         , test_binary/0
         , test_function_pointer/0
+        , test_generic_types/0
         , test_misc/0
         , test_multiple_input/0
         , test_record/0
@@ -14,6 +15,7 @@
 all() ->
   [ test_binary
   , test_function_pointer
+  , test_generic_types
   , test_misc
   , test_multiple_input
   , test_record
@@ -44,6 +46,11 @@ test_type_syntax() ->
 
 test_function_pointer() ->
   FileName = "function_pointer_test.erl",
+  AbsForms = abstract_forms_for_module(FileName),
+  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
+
+test_generic_types() ->
+  FileName = "generic_types.erl",
   AbsForms = abstract_forms_for_module(FileName),
   {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
 

@@ -74,12 +74,12 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
                     St2 = type_check0(St1),
                     St3 = state_dl:save_current_module_scope(St2),
                     UndefinedTypes = count_undefined(St2),
-                    NErros = length(state_dl:errors(St2)),
-                    {St3, Undefs0 + UndefinedTypes + NErros}
+                    NErrors = length(state_dl:errors(St2)),
+                    {St3, Undefs0 + UndefinedTypes + NErrors}
                 end, {State, 0},
                 dict:to_list(state_dl:module_scopes(State))),
 
-  debug_log(State, "Number of undefined types and erros: ~p~n", [Undefs]),
+  debug_log(State, "Number of undefined types and errors: ~p~n", [Undefs]),
 
   %% Only for sake of debugging
   debug_log(State,
@@ -1062,8 +1062,9 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
                                          {T, S1} = type_of(Arg, S0),
                                          {Ts ++ [T], S1}
                                      end, {[], State1}, Args),
-  FTypes = find_fun_type([M, F, Arity, State2], FunLookup),
-  State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State2),
+  FTypes0 = find_fun_type([M, F, Arity, State2], FunLookup),
+  {State21, FTypes}  = materialise_if_generic(FTypes0, TypedArgs, L, State2),
+  State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
   Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
@@ -1096,12 +1097,14 @@ type_of({call, L, NN, Args}, State0) ->
       nil -> standard_fun_lookup_priorities();
       FLookup -> FLookup
     end,
-  {TypedArgs, State2} = lists:foldl(fun(Arg, {Ts, S0}) ->
-                                         {T, S1} = type_of(Arg, S0),
-                                         {Ts ++ [T], S1}
-                                     end, {[], State1}, Args),
-  FTypes = find_fun_type([N, Arity, State2], FunLookup),
-  State3 = assert_found_fun_type(FTypes, L, NN, Arity, State2),
+  {TypedArgs, State2} =
+    lists:foldl(fun(Arg, {Ts, S0}) ->
+                    {T, S1} = type_of(Arg, S0),
+                    {Ts ++ [T], S1}
+                end, {[], State1}, Args),
+  FTypes0 = find_fun_type([N, Arity, State2], FunLookup),
+  {State21, FTypes}  = materialise_if_generic(FTypes0, TypedArgs, L, State2),
+  State3  = assert_found_fun_type(FTypes, L, NN, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
   Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
@@ -1251,7 +1254,7 @@ type_of({bin_element, _, _, _, _}, State0) ->
  {{terl_type, 'Integer'}, State0};
 
 type_of({record, L, N, Fs}, St=#state{}) ->
-  TN = type_internal:find_record_type(N, St),
+  TN     = type_internal:find_record_type(N, St),
   State1 = assert_found_record_type(N, TN, L, St),
   State2 =
     lists:foldl(fun(F, S0) ->
@@ -1276,6 +1279,28 @@ type_of({match, _, _, _} = M, State0) ->
 type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
   {undefined, State}.
+
+materialise_if_generic(FTypes, TypedArgs, L, State) ->
+  lists:foldl(
+    fun(FType, {St, Acc}) ->
+        {FT, Mps, Errs} =
+          type_internal:generic_materialisation(FType, TypedArgs),
+        case length(Errs) of
+          0 -> {State, Acc ++ [FT]};
+          _ ->
+            case dict:size(Mps) > 0 of
+              true -> %% there were generic types involved
+                St1 =
+                  lists:foldl(fun(Err, S0) ->
+                                  state_dl:update_errors(S0, L, Err)
+                              end, St, Errs),
+                {St1, Acc ++ [FT]};
+              false ->
+                {State, Acc ++ [FType]}
+            end
+        end
+    end, {State, []}, FTypes).
+
 
 type_check_record_field(N, TN
                        , {record_field, L, {atom, _, F}, V}, State0) ->
