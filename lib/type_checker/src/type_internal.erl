@@ -345,11 +345,11 @@ gm({terl_generic_type, G}, T, Mappings, Errs) ->
 gm({list_type, T1}, {list_type, T2}, Mappings, Errs) ->
   {T, NMappings, NErrs} = gm(T1, T2, Mappings, Errs),
   {{list_type, T}, NMappings, NErrs};
-gm({tuple_type, Ts1}, {tuple_type, Ts2}, Mappings, Errs) ->
+gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} == TT2, Mappings, Errs) ->
   case length(Ts1) =/= length(Ts2) of
     true ->
       {{tuple_type, Ts1}, Mappings, Errs ++
-         [{non_matching_tuple_length, Ts1, Ts2}]};
+         [{non_matching_tuple_length, TT1, TT2}]};
     false ->
       {T, NM, NE} =
         lists:foldl(fun({T1, T2}, {Acc, M, E}) ->

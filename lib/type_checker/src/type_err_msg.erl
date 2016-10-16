@@ -32,7 +32,7 @@ format_error0({duplicate_type_alias_decl, N, L1, L2}) ->
 format_error0({duplicate_type_cons_decl, N, L1, L2}) ->
   io_lib:format(
     "Type constructor definition '~w' at line ~p is already defined"
-     " with same name at ~p.",
+    " with same name at ~p.",
     [N, L2, L1]);
 
 format_error0({no_fun_decl_found_for_sig, N, L2}) ->
@@ -50,7 +50,25 @@ format_error0({no_matching_fun_decl_for_fun_sig, N, Ar, L2}) ->
 format_error0({fun_sig_clause_arity_not_match, N}) ->
   io_lib:format(
     "Function signature ~w has clauses with different arity.",
-   [N]);
+    [N]);
+
+format_error0({non_matching_fun_args, FT1, FT2}) ->
+  io_lib:format(
+    "Function '~s' has different arity than function '~s' when trying to "
+    "materialise generic types",
+    [pp_type(FT1), pp_type(FT2)]);
+
+format_error0({non_matching_tuple_length, TT1, TT2}) ->
+  io_lib:format(
+    "Tuple '~s' has different size than tuple '~s' when trying to "
+    "materialise generic types",
+    [pp_type(TT1), pp_type(TT2)]);
+
+format_error0({can_not_instantiate_generic_type, T, Vs}) ->
+  io_lib:format(
+    "Type parameter ~p can be materialised to several types in "
+    "function call: ~s",
+    [T, list_to_string([pp_type(V) || V <- Vs], "")]);
 
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
