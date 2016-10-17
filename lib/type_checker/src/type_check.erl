@@ -51,7 +51,6 @@ run_passes([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
       io:format("Something bad happened, type system apologizes: ~p:~p~n"
                , [EE, Err])
   end.
-
 run_one_time_passes(FileNameForms, State, _Opts) ->
   lists:foldl(fun({FileName, Forms, Compile}, St0) ->
                   MS  = state_dl:new_module_scope(FileName, Forms, Compile),
@@ -1286,17 +1285,18 @@ materialise_if_generic(FTypes, TypedArgs, L, State) ->
         {FT, Mps, Errs} =
           type_internal:generic_materialisation(FType, TypedArgs),
         case length(Errs) of
-          0 -> {State, Acc ++ [FT]};
+          0 -> {St, Acc ++ [FT]};
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
+                io:format("Executing this branch!~n", []),
                 St1 =
                   lists:foldl(fun(Err, S0) ->
                                   state_dl:update_errors(S0, L, Err)
                               end, St, Errs),
-                {St1, Acc ++ [FT]};
+                {St1, Acc ++ [undefined]};
               false ->
-                {State, Acc ++ [FType]}
+                {St, Acc ++ [FType]}
             end
         end
     end, {State, []}, FTypes).

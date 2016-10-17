@@ -340,12 +340,18 @@ gm({terl_generic_type, G}, T, Mappings, Errs) ->
              error     -> gb_sets:new()
            end,
   NewSet = gb_sets:add(T, OldSet),
+  Errs1 = case gb_sets:size(NewSet) > 1 of
+            true ->
+              [{can_not_instantiate_generic_type, G, gb_sets:to_list(NewSet)}];
+            false ->
+              []
+          end,
   NMappings = dict:store(G, NewSet, Mappings),
-  {T, NMappings, Errs};
+  {T, NMappings, Errs ++ Errs1};
 gm({list_type, T1}, {list_type, T2}, Mappings, Errs) ->
   {T, NMappings, NErrs} = gm(T1, T2, Mappings, Errs),
   {{list_type, T}, NMappings, NErrs};
-gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} == TT2, Mappings, Errs) ->
+gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
   case length(Ts1) =/= length(Ts2) of
     true ->
       {{tuple_type, Ts1}, Mappings, Errs ++

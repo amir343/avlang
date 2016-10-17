@@ -9,7 +9,8 @@ format_error(T) ->
     format_error0(T)
   catch
     E:_ ->
-      io:format("Failed to do format_error for ~p, got ~p~n", [T, E])
+      io:format("Failed to do format_error for ~p, got ~p~n~p~n",
+                [T, E, erlang:get_stacktrace()])
   end.
 
 
@@ -68,7 +69,7 @@ format_error0({can_not_instantiate_generic_type, T, Vs}) ->
   io_lib:format(
     "Type parameter ~p can be materialised to several types in "
     "function call: ~s",
-    [T, list_to_string([pp_type(V) || V <- Vs], "")]);
+    [T, list_to_string_sep([pp_type(V) || V <- Vs], ", ")]);
 
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
@@ -275,11 +276,11 @@ ind_presentation0(_) ->
 list_to_string([], Res) ->
   Res;
 list_to_string([H], Res) ->
-  list_to_string([], io_lib:format("~s~p", [Res, atom_to_list(H)]));
+  list_to_string([], io_lib:format("~s~p", [Res, H]));
 list_to_string([H|[_, _] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p, ", [Res, atom_to_list(H)]));
+  list_to_string(T, io_lib:format("~s~p, ", [Res, H]));
 list_to_string([H|[_] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p and ", [Res, atom_to_list(H)])).
+  list_to_string(T, io_lib:format("~s~p and ", [Res, H])).
 
 
 pp_type({terl_type, T}) ->
