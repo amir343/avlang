@@ -246,7 +246,7 @@ type_lint(St0) ->
   %% - RHS usage
   %% - Type expansion: type instances, type aliases
   Errs0 = state_dl:errors(St3),
-  Errs  = gb_sets:to_list(gb_sets:from_list(Errs0)),
+  Errs  = lists:usort(Errs0),
   St7   = state_dl:errors(St6, Errs),
   state_dl:warnings(St7, Ws1).
 
@@ -292,7 +292,7 @@ insert_compiler_options(St=#state{}, Options) ->
   Opts  = state_dl:compiler_opts(St),
   St1   = state_dl:compiler_options(St, Options),
   Opts1 = type_check_compiler_opts:options_of_interest(Options),
-  Opts2 = gb_sets:to_list(gb_sets:from_list(Opts ++ Opts1)),
+  Opts2 = lists:usort(Opts ++ Opts1),
   state_dl:compiler_opts(St1, Opts2).
 
 %% Extract user defined types given at line L and associate each one with
@@ -326,7 +326,7 @@ check_undefined_types(State=#state{}) ->
                       {ok, _} -> Acc;
                       _ ->
                         {ok, L} = dict:find(T, TUL),
-                        Locs = gb_sets:to_list(gb_sets:from_list(L)),
+                        Locs = lists:usort(L),
                         Acc ++
                           [{L1, ?TYPE_MSG, {undefined_type, T}} || L1 <- Locs]
                     end
@@ -543,8 +543,8 @@ check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}
                                    , State=#state{}) ->
   GTI0 = lists:flatten([type_internal:extract_generic_types(I) || I <- Is]),
   GTO0 = type_internal:extract_generic_types(O),
-  GTI1 = gb_sets:to_list(gb_sets:from_list(GTI0)),
-  GTO1 = gb_sets:to_list(gb_sets:from_list(GTO0)),
+  GTI1 = lists:usort(GTI0),
+  GTO1 = lists:usort(GTO0),
   NotUsedRhs = GTI1 -- GTO1,
   NotUsedLhs = GTO1 -- GTI1,
   case NotUsedLhs =:= NotUsedRhs of
@@ -596,7 +596,7 @@ type_check0(S0=#state{}) ->
   debug_log(S1, ">>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<~n", []),
   debug_log(S1, "Number of errors: ~p~n", [length(Errs0)]),
 
-  Errs = gb_sets:to_list(gb_sets:from_list(Errs0)),
+  Errs = lists:usort(Errs0),
 
   state_dl:errors(S1, Errs).
 
@@ -1402,7 +1402,7 @@ dispatch(Op, TR) ->
 dispatch_result(Res) ->
   case Res of
     Ls when is_list(Ls) ->
-      Ts = gb_sets:to_list(gb_sets:from_list(Ls)),
+      Ts = lists:usort(Ls),
       case length(Ts) of
         1 ->
           hd(Ts);

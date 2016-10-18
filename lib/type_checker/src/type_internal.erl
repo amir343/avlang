@@ -359,8 +359,8 @@ gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
     false ->
       {T, NM, NE} =
         lists:foldl(fun({T1, T2}, {Acc, M, E}) ->
-                        {TT1, M1, E1} = gm(T1, T2, M, E),
-                        {Acc ++ [TT1], M1, E1}
+                        {T11, M1, E1} = gm(T1, T2, M, E),
+                        {Acc ++ [T11], M1, E1}
                     end, {[], Mappings, Errs}, lists:zip(Ts1, Ts2)),
       {{tuple_type, T}, NM, NE}
   end;
