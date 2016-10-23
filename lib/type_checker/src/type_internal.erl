@@ -46,6 +46,8 @@ module_of({union_type, _}) ->
   ?UNION_MOD;
 module_of({list_type, _}) ->
   ?LIST_MOD;
+module_of({terl_atom_type, _}) ->
+  ?MODULE;
 module_of(W) ->
   io:format("Module_of is not defined for ~p~n", [W]),
   ?MODULE.
@@ -117,6 +119,12 @@ lub({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
   end;
 lub({fun_type, _, _}, _) ->
   {terl_type, 'Any'};
+lub({terl_atom_type, _}, {terl_atom_type, _}) ->
+  {terl_type, 'Atom'};
+lub({terl_type, 'Atom'}, {terl_atom_type, _}) ->
+  {terl_type, 'Atom'};
+lub({terl_atom_type, _}, {terl_type, 'Atom'}) ->
+  {terl_type, 'Atom'};
 lub(T1, T2) ->
   M = module_of(T1),
   apply(M, lub, [T2]).
@@ -145,7 +153,6 @@ built_in('Reference') -> true;
 built_in('String') -> true;
 built_in('Pid') -> true;
 built_in('Port') -> true;
-
 
 built_in(_) -> false.
 
@@ -203,6 +210,8 @@ type_equivalent(_, _) ->
   false.
 
 
+sub_type_of({list_type, T1}, {list_type, T2}) ->
+  sub_type_of(T1, T2);
 sub_type_of([_ | _] = T1, [_ | _] = T2) ->
   lists:all(fun(R) ->
                 R =:= true
@@ -339,7 +348,15 @@ gm({terl_generic_type, G}, T, Mappings, Errs) ->
              {ok, Set} -> Set;
              error     -> gb_sets:new()
            end,
-  NewSet = gb_sets:add(T, OldSet),
+  NewSet0 = gb_sets:add(T, OldSet),
+  NewSet = case lub_on_list(gb_sets:to_list(NewSet0)) of
+             ?ANY ->
+               case gb_sets:is_member(?ANY, NewSet0) of
+                 true -> gb_sets:add(?ANY, gb_sets:new());
+                 false -> NewSet0
+               end;
+             LUBT -> gb_sets:add(LUBT, gb_sets:new())
+           end,
   Errs1 = case gb_sets:size(NewSet) > 1 of
             true ->
               [{can_not_instantiate_generic_type, G, gb_sets:to_list(NewSet)}];
@@ -367,6 +384,11 @@ gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
 gm(T1, _T2, Mappings, Errs) ->
   {T1, Mappings, Errs}.
 
+
+lub_on_list(Types) ->
+  lists:foldl(fun(Type, Acc) ->
+                  lub(Type, Acc)
+              end, nothing, Types).
 
 ulist({list_type, T}) ->
   T;

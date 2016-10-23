@@ -1289,7 +1289,6 @@ materialise_if_generic(FTypes, TypedArgs, L, State) ->
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
-                io:format("Executing this branch!~n", []),
                 St1 =
                   lists:foldl(fun(Err, S0) ->
                                   state_dl:update_errors(S0, L, Err)

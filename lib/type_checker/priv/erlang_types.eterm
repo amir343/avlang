@@ -46,4 +46,7 @@
 , "erlang:spawn_opt :: (Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 , "erlang:spawn_opt :: (Atom, Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 
+, "lists:map :: ([A], (A -> B)) -> [B]."
+, "lists:foldl :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
+
 ].

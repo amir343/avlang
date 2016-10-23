@@ -12,3 +12,17 @@ test_my_map() ->
   type F :: (Integer -> Integer),
   F = fun(I) -> I + 1 end,
   my_map([1, 2, 3, 4], F).
+
+
+fun_1 :: ([A], (A -> [B])) -> [[B]].
+fun_1(A, F) ->
+  my_map(A, F).
+
+test_lists_map() ->
+  lists:map([1, 2, 3], fun(I) ->
+                           I + 1 end).
+
+test_lists_foldl() ->
+  lists:foldl(fun(E, Acc) ->
+                  [atom_to_list(E)] ++ Acc
+              end, [], [a, b, c]).
