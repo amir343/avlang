@@ -1,5 +1,7 @@
 -module(generic_types).
 
+-comple([type_debug, dump_local_scope]).
+
 my_map :: ([], Any) -> [];
           ([A], (A -> B)) -> [B].
 my_map([], _F) ->
@@ -26,3 +28,13 @@ test_lists_foldl() ->
   lists:foldl(fun(E, Acc) ->
                   [atom_to_list(E)] ++ Acc
               end, [], [a, b, c]).
+
+test_lists_all() ->
+  lists:all(fun(I) ->
+                I div 2 > 0
+            end, [1, 2, 3, 4]).
+
+test_hd_and_tl :: () -> {Integer, [Integer]}.
+test_hd_and_tl() ->
+  List = [1, 2, 3, 4, 5],
+  {hd(List), erlang:tl(List)}.

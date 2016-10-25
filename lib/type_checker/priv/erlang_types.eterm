@@ -8,6 +8,8 @@
 , "erlang:integer_to_list :: (Integer) -> String."
 , "erlang:atom_to_list :: (Atom) -> String."
 , "erlang:element :: (Integer, {}) -> Any."
+, "erlang:hd :: ([A]) -> A."
+, "erlang:tl :: ([A]) -> [A]."
 
 , "is_tuple :: (Any) -> Boolean."
 , "is_integer :: (Any) -> Boolean."
@@ -15,6 +17,8 @@
 , "integer_to_list :: (Integer) -> String."
 , "atom_to_list :: (Atom) -> String."
 , "element :: (Integer, {}) -> Any."
+, "hd :: ([A]) -> A."
+, "tl :: ([A]) -> [A]."
 
 , "spawn :: UntypedFun -> Pid."
 , "spawn :: (Atom, UntypedFun) -> Pid."
@@ -48,5 +52,7 @@
 
 , "lists:map :: ([A], (A -> B)) -> [B]."
 , "lists:foldl :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
+, "lists:foldr :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
+, "lists:all :: ((A -> Boolean), [A]) -> Boolean."
 
 ].

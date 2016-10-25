@@ -4,6 +4,9 @@
         , pp_type/1
         ]).
 
+-export([ internal_format_error/3
+        ]).
+
 format_error(T) ->
   try
     format_error0(T)
@@ -13,6 +16,8 @@ format_error(T) ->
                 [T, E, erlang:get_stacktrace()])
   end.
 
+internal_format_error(FileName, Line, Message) ->
+  io_lib:format("~s:~p: ~s~n", [FileName, Line, format_error(Message)]).
 
 format_error0({no_remote_fun_sig_allowed, M, N}) ->
   io_lib:format(

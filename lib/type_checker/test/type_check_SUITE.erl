@@ -52,7 +52,8 @@ test_function_pointer() ->
 test_generic_types() ->
   FileName = "generic_types.erl",
   AbsForms = abstract_forms_for_module(FileName),
-  {ok, [{[], [], nil}]} = type_check:module([{FileName, AbsForms, nil}], []).
+  {ok, [{[], [], nil}]} =
+    print_result(type_check:module([{FileName, AbsForms, nil}], [])).
 
 test_multiple_input() ->
   FileName1 = "function_pointer_test.erl",
@@ -79,3 +80,17 @@ abstract_forms_for_module(FileName) ->
   {ok, AbsForm} = epp:parse_file(Mod, [], []),
   AbsForm.
 
+print_result({ok, [{[], [], nil}]} = Res) ->
+  Res;
+print_result({error, ProblematicFiles} = Res) ->
+  io:format("~n", []),
+  lists:foreach(
+    fun({_Ws, Errs, _}) ->
+        lists:foreach(
+          fun({FN, Msgs}) ->
+              [io:format("\t~s",
+                         [type_err_msg:internal_format_error(FN, L, Msg)])
+               || {L, _, Msg} <- Msgs]
+          end, Errs)
+    end, ProblematicFiles),
+  Res.
