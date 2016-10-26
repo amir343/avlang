@@ -212,11 +212,15 @@ format_error0({can_not_infer_type_fun, M, NN, Ar}) ->
     [M, pp_expr(NN), Ar]
    );
 
-format_error0({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
+format_error0({non_matching_type_fun_call, M, N, Arity, Ind, Got, Expected}) ->
+  Fun = case M of
+          undefined -> io_lib:format("~p", [N]);
+          _         -> io_lib:format("~p:~p", [M, N])
+        end,
   io_lib:format(
-    "~s argument in function call '~p/~p' has non-matching types, " ++
-      "expected: ~s, but got: ~s",
-    [ind_presentation(Ind), N, Arity, pp_type(Expected), pp_type(Got)]
+    "~s argument in function call '~s/~p' has non-matching types, " ++
+      "expected: '~s', but got: '~s'",
+    [ind_presentation(Ind), Fun, Arity, pp_type(Expected), pp_type(Got)]
    );
 
 format_error0({multiple_match_for_function_call, MatchingTypes}) ->

@@ -300,7 +300,8 @@ eliminate_record_type({record, _, N, Ts}, State0=#state{}) ->
 
 
 generic_materialisation(Generic, T) ->
-  gm(Generic, T, dict:new(), []).
+  Res = {_FT, _Maps, _Errs} = gm(Generic, T, dict:new(), []),
+  Res.
 
 gm([{fun_type, _, _} = FT1], {fun_type, _, _} = FT2, Mappings, Errs) ->
   gm(FT1, FT2, Mappings, Errs);
@@ -310,7 +311,8 @@ gm([{fun_type, _, _} = FT1], [{fun_type, _, _} = FT2], Mappings, Errs) ->
   gm(FT1, FT2, Mappings, Errs);
 gm({fun_type, Is1, O1} = FT1, {fun_type, Is2, O2} = FT2, Mappings, Errs) ->
   case length(Is1) =/= length(Is2) of
-    true -> {FT1, Mappings, Errs ++ [{non_matching_fun_args, FT1, FT2}]};
+    true -> {generic_to_undefined(FT1),
+             Mappings, Errs ++ [{non_matching_fun_args, FT1, FT2}]};
     false ->
       {NIs, NMappings, NErrs} =
         lists:foldl(fun({I1, I2}, {Acc, M, E}) ->
@@ -371,7 +373,7 @@ gm({list_type, T1}, {list_type, T2}, Mappings, Errs) ->
 gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
   case length(Ts1) =/= length(Ts2) of
     true ->
-      {{tuple_type, Ts1}, Mappings, Errs ++
+      {generic_to_undefined({tuple_type, Ts1}), Mappings, Errs ++
          [{non_matching_tuple_length, TT1, TT2}]};
     false ->
       {T, NM, NE} =
@@ -382,13 +384,20 @@ gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
       {{tuple_type, T}, NM, NE}
   end;
 gm(T1, _T2, Mappings, Errs) ->
-  {T1, Mappings, Errs}.
+  {generic_to_undefined(T1), Mappings, Errs}.
 
 
 lub_on_list(Types) ->
   lists:foldl(fun(Type, Acc) ->
                   lub(Type, Acc)
               end, nothing, Types).
+
+generic_to_undefined(Type) ->
+  Map = fun({terl_generic_type, _}) ->
+            undefined;
+           (T) -> T
+        end,
+  type_map(Type, Map).
 
 ulist({list_type, T}) ->
   T;

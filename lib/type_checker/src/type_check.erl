@@ -1062,7 +1062,8 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
                                          {Ts ++ [T], S1}
                                      end, {[], State1}, Args),
   FTypes0 = find_fun_type([M, F, Arity, State2], FunLookup),
-  {State21, FTypes}  = materialise_if_generic(FTypes0, TypedArgs, L, State2),
+  {State21, FTypes, GenericTypes} =
+    materialise_if_generic(FTypes0, TypedArgs, L, State2),
   State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
@@ -1070,9 +1071,18 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
 
   case length(Matches) of
     0 ->
-      {undefined,
-       state_dl:update_errors(State3, L,
-                              {can_not_infer_type_fun, M, F, Arity})};
+      case GenericTypes of
+        false ->
+          {undefined,
+           state_dl:update_errors(State3, L,
+                                  {can_not_infer_type_fun, M, F, Arity})};
+        true ->
+          Errs =
+            lists:flatten(
+              [generate_error_for_call(M, F, Arity, L, NonMatch)
+               || {_, NonMatch, _} <- Res]),
+          {undefined, state_dl:update_errors(State3, Errs)}
+      end;
     1 ->
       {fun_type, _, O} = element(3, hd(Matches)),
       {O, State3};
@@ -1102,7 +1112,8 @@ type_of({call, L, NN, Args}, State0) ->
                     {Ts ++ [T], S1}
                 end, {[], State1}, Args),
   FTypes0 = find_fun_type([N, Arity, State2], FunLookup),
-  {State21, FTypes}  = materialise_if_generic(FTypes0, TypedArgs, L, State2),
+  {State21, FTypes, GenericTypes} =
+    materialise_if_generic(FTypes0, TypedArgs, L, State2),
   State3  = assert_found_fun_type(FTypes, L, NN, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
@@ -1110,32 +1121,42 @@ type_of({call, L, NN, Args}, State0) ->
 
   case length(Matches) of
     0 ->
-      %% In case of no exact match we try to partially match the
-      %% typed arguments against FTypes by using the eliminate method.
-      {fun_type, Is, O} = find_the_best_match(TypedArgs, FTypes),
-      {TypedArgs1, VartTypes} =
-        lists:foldl(fun({A, T1, T2}, {Ts, VTs}) ->
-                        case T1 of
-                          undefined ->
-                            VarTypes = type_internal:eliminate(A, T2, State3),
-                            case VarTypes of
-                              [] -> {Ts ++ [T1], VTs};
-                              _  -> {Ts ++ [T2], VTs ++ VarTypes}
-                            end;
-                          _ ->
-                            {Ts ++ [T1], VTs}
-                        end
-                    end, {[], []}, lists:zip3(Args, TypedArgs, Is)),
-      %% If the new TypedArgs is an exact match of callee then we can
-      %% infer that we could eliminate types successfully, otherwise the
-      %% old approach of generating type errors for arguments is followed.
-      case find_exact_match(TypedArgs1, {fun_type, Is, O}) of
-        {true, _, _} ->
-          {O, update_local(State3, VartTypes)};
-        {false, _, _} ->
+      case GenericTypes of
+        false ->
+          %% In case of no exact match we try to partially match the
+          %% typed arguments against FTypes by using the eliminate method.
+          {fun_type, Is, O} = find_the_best_match(TypedArgs, FTypes),
+          {TypedArgs1, VartTypes} =
+            lists:foldl(fun({A, T1, T2}, {Ts, VTs}) ->
+                            case T1 of
+                              undefined ->
+                                VarTypes =
+                                  type_internal:eliminate(A, T2, State3),
+                                case VarTypes of
+                                  [] -> {Ts ++ [T1], VTs};
+                                  _  -> {Ts ++ [T2], VTs ++ VarTypes}
+                                end;
+                              _ ->
+                                {Ts ++ [T1], VTs}
+                            end
+                        end, {[], []}, lists:zip3(Args, TypedArgs, Is)),
+          %% If the new TypedArgs is an exact match of callee then we can
+          %% infer that we could eliminate types successfully, otherwise the
+          %% old approach of generating type errors for arguments is followed.
+          case find_exact_match(TypedArgs1, {fun_type, Is, O}) of
+            {true, _, _} ->
+              {O, update_local(State3, VartTypes)};
+            {false, _, _} ->
+              Errs =
+                lists:flatten(
+                  [generate_error_for_call(undefined, N, Arity, L, NonMatch)
+                   || {_, NonMatch, _} <- Res]),
+              {undefined, state_dl:update_errors(State3, Errs)}
+          end;
+        true ->
           Errs =
             lists:flatten(
-              [generate_error_for_call(N, Arity, L, NonMatch)
+              [generate_error_for_call(undefined, N, Arity, L, NonMatch)
                || {_, NonMatch, _} <- Res]),
           {undefined, state_dl:update_errors(State3, Errs)}
       end;
@@ -1281,11 +1302,17 @@ type_of(T, State) ->
 
 materialise_if_generic(FTypes, TypedArgs, L, State) ->
   lists:foldl(
-    fun(FType, {St, Acc}) ->
+    fun(FType, {St, Acc, Generic}) ->
         {FT, Mps, Errs} =
           type_internal:generic_materialisation(FType, TypedArgs),
         case length(Errs) of
-          0 -> {St, Acc ++ [FT]};
+          0 ->
+            case dict:size(Mps) > 0 of
+              true ->
+                {St, Acc ++ [FT], true};
+              false ->
+                {St, Acc ++ [FT], Generic}
+            end;
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
@@ -1293,12 +1320,12 @@ materialise_if_generic(FTypes, TypedArgs, L, State) ->
                   lists:foldl(fun(Err, S0) ->
                                   state_dl:update_errors(S0, L, Err)
                               end, St, Errs),
-                {St1, Acc ++ [undefined]};
+                {St1, Acc ++ [undefined], true};
               false ->
-                {St, Acc ++ [FType]}
+                {St, Acc ++ [FType], Generic}
             end
         end
-    end, {State, []}, FTypes).
+    end, {State, [], false}, FTypes).
 
 
 type_check_record_field(N, TN
@@ -1365,7 +1392,7 @@ find_lub(TCls) ->
 create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
     {Prefix, L, length(Es), length(Gs), length(Cls), Ind}.
 
-generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
+generate_error_for_call(M, N, Arity, L, NonMatchedArgList) ->
   {Res, _} =
     lists:foldl(
       fun(Arg, {Acc, Ind}) ->
@@ -1374,7 +1401,8 @@ generate_error_for_call(N, Arity, L, NonMatchedArgList) ->
             {false, Got, Expected} ->
               {Acc ++
                  [{L, ?TYPE_MSG,
-                   {non_matching_type_fun_call, N, Arity, Ind, Got, Expected}}]
+                   {non_matching_type_fun_call,
+                    M, N, Arity, Ind, Got, Expected}}]
               , Ind + 1}
           end
       end, {[], 1}, NonMatchedArgList),

@@ -1,6 +1,5 @@
 -module(generic_types).
 
--comple([type_debug, dump_local_scope]).
 
 my_map :: ([], Any) -> [];
           ([A], (A -> B)) -> [B].
