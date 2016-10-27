@@ -4,14 +4,20 @@
         , pp_type/1
         ]).
 
+-export([ internal_format_error/3
+        ]).
+
 format_error(T) ->
   try
     format_error0(T)
   catch
     E:_ ->
-      io:format("Failed to do format_error for ~p, got ~p~n", [T, E])
+      io:format("Failed to do format_error for ~p, got ~p~n~p~n",
+                [T, E, erlang:get_stacktrace()])
   end.
 
+internal_format_error(FileName, Line, Message) ->
+  io_lib:format("~s:~p: ~s~n", [FileName, Line, format_error(Message)]).
 
 format_error0({no_remote_fun_sig_allowed, M, N}) ->
   io_lib:format(
@@ -32,7 +38,7 @@ format_error0({duplicate_type_alias_decl, N, L1, L2}) ->
 format_error0({duplicate_type_cons_decl, N, L1, L2}) ->
   io_lib:format(
     "Type constructor definition '~w' at line ~p is already defined"
-     " with same name at ~p.",
+    " with same name at ~p.",
     [N, L2, L1]);
 
 format_error0({no_fun_decl_found_for_sig, N, L2}) ->
@@ -50,7 +56,25 @@ format_error0({no_matching_fun_decl_for_fun_sig, N, Ar, L2}) ->
 format_error0({fun_sig_clause_arity_not_match, N}) ->
   io_lib:format(
     "Function signature ~w has clauses with different arity.",
-   [N]);
+    [N]);
+
+format_error0({non_matching_fun_args, FT1, FT2}) ->
+  io_lib:format(
+    "Function '~s' has different arity than function '~s' when trying to "
+    "materialise generic types",
+    [pp_type(FT1), pp_type(FT2)]);
+
+format_error0({non_matching_tuple_length, TT1, TT2}) ->
+  io_lib:format(
+    "Tuple '~s' has different size than tuple '~s' when trying to "
+    "materialise generic types",
+    [pp_type(TT1), pp_type(TT2)]);
+
+format_error0({can_not_instantiate_generic_type, T, Vs}) ->
+  io_lib:format(
+    "Type parameter ~p can be materialised to several types in "
+    "function call: ~s",
+    [T, list_to_string_sep([pp_type(V) || V <- Vs], ", ")]);
 
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
@@ -188,11 +212,15 @@ format_error0({can_not_infer_type_fun, M, NN, Ar}) ->
     [M, pp_expr(NN), Ar]
    );
 
-format_error0({non_matching_type_fun_call, N, Arity, Ind, Got, Expected}) ->
+format_error0({non_matching_type_fun_call, M, N, Arity, Ind, Got, Expected}) ->
+  Fun = case M of
+          undefined -> io_lib:format("~p", [N]);
+          _         -> io_lib:format("~p:~p", [M, N])
+        end,
   io_lib:format(
-    "~s argument in function call '~p/~p' has non-matching types, " ++
-      "expected: ~s, but got: ~s",
-    [ind_presentation(Ind), N, Arity, pp_type(Expected), pp_type(Got)]
+    "~s argument in function call '~s/~p' has non-matching types, " ++
+      "expected: '~s', but got: '~s'",
+    [ind_presentation(Ind), Fun, Arity, pp_type(Expected), pp_type(Got)]
    );
 
 format_error0({multiple_match_for_function_call, MatchingTypes}) ->
@@ -257,15 +285,18 @@ ind_presentation0(_) ->
 list_to_string([], Res) ->
   Res;
 list_to_string([H], Res) ->
-  list_to_string([], io_lib:format("~s~p", [Res, atom_to_list(H)]));
+  list_to_string([], io_lib:format("~s~p", [Res, H]));
 list_to_string([H|[_, _] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p, ", [Res, atom_to_list(H)]));
+  list_to_string(T, io_lib:format("~s~p, ", [Res, H]));
 list_to_string([H|[_] = T], Res) ->
-  list_to_string(T, io_lib:format("~s~p and ", [Res, atom_to_list(H)])).
+  list_to_string(T, io_lib:format("~s~p and ", [Res, H])).
 
 
 pp_type({terl_type, T}) ->
   io_lib:format("~s", [T]);
+
+pp_type({terl_generic_type, T}) ->
+  io_lib:format("'~s'", [T]);
 
 pp_type({list_type, T}) ->
   io_lib:format("[~s]", [pp_type(T)]);
