@@ -25,7 +25,7 @@
 	 set_bit_type/2,
 	 as_list/1]).
 
--include("../include/erl_bits.hrl").
+-include("erl_bits.hrl").
 
 %% Dummies.
 

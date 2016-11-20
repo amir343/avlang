@@ -49,7 +49,19 @@ MODULES =  \
 	core_parse \
 	core_pp \
 	core_scan \
+  erl_anno \
 	erl_bifs \
+  erl_compile	\
+	erl_expand_records \
+	erl_lint \
+  erl_pp \
+  erl_tar \
+  erl_bits \
+  erl_eval \
+  erl_internal \
+  erl_parse \
+  erl_posix_msg \
+  erl_scan \
 	rec_env \
 	sys_core_dsetel \
 	sys_core_fold \
@@ -71,7 +83,8 @@ HRL_FILES= \
 	v3_kernel.hrl \
 	v3_life.hrl
 
-YRL_FILE = $(SRC)/core_parse.yrl
+YRL_FILE = $(SRC)/core_parse.yrl \
+         $(SRC)/erl_parse.yrl
 
 EXTRA_FILES= $(EGEN)/beam_opcodes.hrl
 
@@ -97,8 +110,7 @@ ifeq ($(NATIVE_LIBS_ENABLED),yes)
 ERL_COMPILE_FLAGS += +native
 endif
 ERL_COMPILE_FLAGS += +inline +warn_unused_import \
- -Werror \
- -I../stdlib/include -I$(EBIN) -W
+ -Werror  -I$(EBIN) -W
 
 # ----------------------------------------------------
 # Targets
@@ -124,9 +136,20 @@ $(EGEN)/beam_opcodes.erl $(EGEN)/beam_opcodes.hrl: $(SRC)/genop.tab
 $(EBIN)/beam_asm.beam: $(SRC)/beam_asm.erl $(EGEN)/beam_opcodes.hrl
 	$(ERLC) $(ERL_COMPILE_FLAGS) -DCOMPILER_VSN='"6.0.3"' -o$(EBIN) $<
 
+$(EBIN)/erl_compile.beam: $(SRC)/erl_compile.erl
+	$(ERLC) $(ERL_COMPILE_FLAGS) -I../kernel/include -o$(EBIN) $(SRC)/erl_compile.erl
+
 $(EBIN)/cerl_inline.beam: $(SRC)/cerl_inline.erl
 	$(ERLC) $(ERL_COMPILE_FLAGS) +nowarn_shadow_vars -o$(EBIN) $<
 
 # Inlining core_parse is slow and has no benefit.
 $(EBIN)/core_parse.beam: $(EGEN)/core_parse.erl
+	$(ERLC) $(subst +inline,,$(ERL_COMPILE_FLAGS)) -I$(SRC) -o$(EBIN) $<
+
+# Inlining erl_parse is slow and has no benefit.
+$(EBIN)/erl_parse.beam: $(EGEN)/erl_parse.erl
+	$(ERLC) $(subst +inline,,$(ERL_COMPILE_FLAGS)) -I$(SRC) -o$(EBIN) $<
+
+# Inlining erl_lint is slow and has no benefit.
+$(EBIN)/erl_lint.beam: $(SRC)/erl_lint.erl
 	$(ERLC) $(subst +inline,,$(ERL_COMPILE_FLAGS)) -I$(SRC) -o$(EBIN) $<
