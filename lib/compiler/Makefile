@@ -136,8 +136,8 @@ $(EGEN)/beam_opcodes.erl $(EGEN)/beam_opcodes.hrl: $(SRC)/genop.tab
 $(EBIN)/beam_asm.beam: $(SRC)/beam_asm.erl $(EGEN)/beam_opcodes.hrl
 	$(ERLC) $(ERL_COMPILE_FLAGS) -DCOMPILER_VSN='"6.0.3"' -o$(EBIN) $<
 
-$(EBIN)/erl_compile.beam: $(SRC)/erl_compile.erl
-	$(ERLC) $(ERL_COMPILE_FLAGS) -I../kernel/include -o$(EBIN) $(SRC)/erl_compile.erl
+#$(EBIN)/erl_compile.beam: $(SRC)/erl_compile.erl
+#	$(ERLC) $(ERL_COMPILE_FLAGS) -I../kernel/include -o$(EBIN) $(SRC)/erl_compile.erl
 
 $(EBIN)/cerl_inline.beam: $(SRC)/cerl_inline.erl
 	$(ERLC) $(ERL_COMPILE_FLAGS) +nowarn_shadow_vars -o$(EBIN) $<
