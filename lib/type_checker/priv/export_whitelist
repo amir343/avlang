@@ -88,7 +88,7 @@
 , erl_id_trans
 , erl_internal
 , erl_lint
-, erl_parse
+, terl_parse
 , erl_posix_msg
 , erl_pp
 , erl_reply

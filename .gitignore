@@ -13,6 +13,7 @@ autom4te.cache
 !/bootstrap/lib/compiler/ebin/*.beam
 !/bootstrap/lib/kernel/ebin/*.beam
 !/bootstrap/lib/stdlib/ebin/*.beam
+!/bootstrap/lib/parsetools/ebin/*.beam
 !/erts/preloaded/ebin/*.beam
 !/lib/*/test/*_SUITE_data/*.beam
 
@@ -27,83 +28,12 @@ autom4te.cache
 # Do not use too creative wildcards.
 # Those might ignore files that should not be ignored.
 
-i686-pc-linux-gnu
-x86_64-unknown-linux-gnu
-i386-apple-darwin[0-9]*.[0-9]*.[0-9]*
-x86_64-apple-darwin[0-9]*.[0-9]*.[0-9]*
-sparc-sun-solaris[0-9]*.[0-9]*
-i386-pc-solaris[0-9]*.[0-9]*
-i386-unknown-freebsd[0-9]*.[0-9]*
-tile-tilera-linux-gnu
-powerpc-unknown-linux-gnu
-i386-elf-ose
-powerpc-unknown-ose
-
 # Mac OS X
 a.out.dSYM/
 
 # Windows
 *.pdb
 tcltk85_win32_bin.tar.gz
-erts/autoconf/win32.config.cache
-erts/emulator/obj/
-erts/emulator/pcre/obj/
-erts/emulator/pcre/win32/
-erts/emulator/win32/
-erts/emulator/zlib/obj/
-erts/emulator/zlib/win32/
-erts/epmd/src/win32/
-erts/etc/common/Install.ini
-erts/etc/common/win32/
-erts/etc/win32/cygwin_tools/vc/coffix.exe
-erts/include/internal/win32/
-erts/include/win32/
-erts/lib/internal/win32/
-erts/lib/win32/
-erts/lib_src/obj/
-erts/lib_src/win32/
-erts/obj/win32/
-erts/win32/
-erts/etc/win32/nsis/erlang.nsh
-lib/asn1/priv/lib/
-lib/asn1/priv/obj/
-lib/common_test/priv/win32/
-lib/crypto/c_src/win32/
-lib/crypto/priv/lib/
-lib/crypto/priv/obj/
-lib/erl_interface/obj.md/
-lib/erl_interface/obj.mdd/
-lib/erl_interface/src/win32/
-lib/gs/priv/tcl/
-lib/gs/tcl/binaries/
-lib/ic/c_src/win32/
-lib/ic/priv/lib/win32/
-lib/ic/priv/obj/win32/
-lib/megaco/src/flex/win32/
-lib/odbc/c_src/win32/
-lib/odbc/priv/bin/odbcserver.exe
-lib/odbc/priv/obj/win32/odbcserver.o
-lib/orber/c_src/win32/
-lib/os_mon/c_src/win32/
-lib/os_mon/priv/bin/win32/
-lib/os_mon/priv/obj/win32/
-lib/runtime_tools/c_src/win32/
-lib/runtime_tools/priv/lib/
-lib/runtime_tools/priv/obj/
-lib/runtime_tools/doc/src/DTRACE.xml
-lib/runtime_tools/doc/src/SYSTEMTAP.xml
-lib/tools/bin/win32/
-lib/tools/c_src/win32/
-lib/tools/obj/win32/
-lib/wx/c_src/win32/
-lib/wx/priv/win32/
-lib/wx/win32/
-make/win32/
-make/otp_built
-make/otp_doc_built
-
-# OSE
-*.d
 
 # Used by ic & orber & cos* applications.
 IDL-GENERATED
@@ -119,21 +49,6 @@ JAVADOC-GENERATED
 /bootstrap/bin/*
 /bootstrap/target
 !/bootstrap/bin/*.boot
-
-/bootstrap/lib/asn1
-/bootstrap/lib/common_test
-/bootstrap/lib/edoc
-/bootstrap/lib/erl_docgen
-/bootstrap/lib/hipe
-/bootstrap/lib/ic
-/bootstrap/lib/orber
-/bootstrap/lib/parsetools
-/bootstrap/lib/sasl
-/bootstrap/lib/snmp
-/bootstrap/lib/syntax_tools
-/bootstrap/lib/test_server
-/bootstrap/lib/wx
-/bootstrap/lib/xmerl
 
 /Makefile
 /configure

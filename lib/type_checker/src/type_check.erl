@@ -1,5 +1,19 @@
+% Copyright (c) 2016 Amir Moulavi
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
-%% Current abstract forms from erl_parser:
+
+%% Current abstract forms from terl_parser:
 %%
 %% {fun_sig, Line, Name, Type}
 %% {fun_type, Is, O}
@@ -22,26 +36,38 @@
 
 %%------------------------------------------------------------------------------
 
--export([ module/2
+-export([ module/1
+        , module/2
+        , modules/1
+        , modules/2
         ]).
 
 %%------------------------------------------------------------------------------
 
 -include("type_checker_state.hrl").
+-include("../compiler/include/terl_compiler.hrl").
 
 %%------------------------------------------------------------------------------
+module(#compile{} = Compile) ->
+  run_passes([Compile], []).
 
-module([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
-  run_passes(FileNameForms, Opts).
+module(#compile{} = Compile, Opts) ->
+  run_passes([Compile], Opts).
 
-run_passes([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
+modules([#compile{} | _] = Compiles) ->
+  run_passes(Compiles, []).
+
+modules([#compile{} | _] = Compiles, Opts) ->
+  run_passes(Compiles, Opts).
+
+run_passes([#compile{} | _] = Compiles, Opts) ->
   try
     Opts1 = type_check_compiler_opts:options_of_interest(Opts),
     St0   = state_dl:compiler_opts(state_dl:new_state(), Opts1),
     St1   = state_dl:erlang_types(St0, bootstrap_erlang_types()),
     St2   = state_dl:guard_types(St1, erlang_guard_signature()),
     St3   = state_dl:export_whitelist(St2, export_whitelist()),
-    St4   = run_one_time_passes(FileNameForms, St3, Opts),
+    St4   = run_one_time_passes(Compiles, St3, Opts),
     St5   = type_check_loop(1, St4, infinity),
     format_result(St5)
   catch
@@ -51,13 +77,13 @@ run_passes([{_FileName, _Forms, _Compile} | _] = FileNameForms, Opts) ->
       io:format("Something bad happened, type system apologizes: ~p:~p~n"
                , [EE, Err])
   end.
-run_one_time_passes(FileNameForms, State, _Opts) ->
-  lists:foldl(fun({FileName, Forms, Compile}, St0) ->
+run_one_time_passes(Compiles, State, _Opts) ->
+  lists:foldl(fun(#compile{ifile = FileName, code = Forms} = Compile, St0) ->
                   MS  = state_dl:new_module_scope(FileName, Forms, Compile),
                   St1 = state_dl:current_module(St0, MS),
                   St2 = type_lint(St1),
                   state_dl:save_current_module_scope(St2)
-              end, State, FileNameForms).
+              end, State, Compiles).
 
 %% TODO: how many iterations until we give up?
 type_check_loop(10, S, _) ->
@@ -172,7 +198,7 @@ bootstrap_erlang_types() ->
   ParsedSignature = [begin
                        try
                          {ok, Tokens, _} = erl_scan:string(T),
-                         {ok, ParsedTokens} = erl_parse:parse(Tokens),
+                         {ok, ParsedTokens} = terl_parse:parse(Tokens),
                          ParsedTokens
                        catch
                            _:E ->
@@ -208,7 +234,7 @@ erlang_guard_signature() ->
   lists:foldl(fun(T, Dict) ->
                   try
                     {ok, Tokens, _} = erl_scan:string(T),
-                    {ok, {fun_sig, _, N, _Ts} = FT} = erl_parse:parse(Tokens),
+                    {ok, {fun_sig, _, N, _Ts} = FT} = terl_parse:parse(Tokens),
                     dict:append(N, FT, Dict)
                   catch
                     _:E ->
@@ -578,7 +604,7 @@ fun_arity([{fun_type, I, _} | _]) ->
   length(I).
 
 
-%%%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%
 
 type_check0(S0=#state{}) ->
   Opts   = state_dl:compiler_opts(S0),
