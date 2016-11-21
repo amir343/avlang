@@ -4,8 +4,6 @@ set -u
 
 TYPE_CHECK=lib/type_checker
 COMPILER=lib/compiler
-KERNEL=lib/kernel
-STDLIB=lib/stdlib
 
 function compile_app {
     [[ -z "$1" ]] && echo "No input given to compile function" && exit 1
@@ -23,9 +21,7 @@ function compile {
 function shell {
     bootstrap/bin/erl \
         -pa ${TYPE_CHECK}/ebin \
-        -pa ${COMPILER}/ebin \
-        -pa ${KERNEL}/ebin \
-        -pa ${STDLIB}/ebin
+        -pa ${COMPILER}/ebin
 }
 
 function evaluate {
@@ -35,8 +31,6 @@ function evaluate {
         -hidden -noshell -sname test -connect_all false \
         -pa ${TYPE_CHECK}/ebin \
         -pa ${COMPILER}/ebin \
-        -pa ${KERNEL}/ebin \
-        -pa ${STDLIB}/ebin \
         -eval $1
 }
 
@@ -48,9 +42,7 @@ function run_test {
 
     bootstrap/bin/erl \
         -pa ${TYPE_CHECK}/ebin \
-        -pa ${STDLIB}/ebin \
         -pa ${COMPILER}/ebin \
-        -pa ${KERNEL}/ebin \
         -noshell \
         -s run_test run
 }

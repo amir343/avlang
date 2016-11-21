@@ -1,8 +1,6 @@
+#! /bin/bash
+# Copyright (c) 2016 Amir Moulavi
 #
-# %CopyrightBegin%
-# 
-# Copyright Ericsson AB 1996-2009. All Rights Reserved.
-# 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,24 +12,51 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# %CopyrightEnd%
-#
-include $(ERL_TOP)/make/target.mk
-include $(ERL_TOP)/make/$(TARGET)/otp.mk
 
-#
-# Macros
-#
+include $(TERL_ROOT)/make/common_targets.mk
 
-SUB_DIRECTORIES = src
+MODULES =  \
+	state_dl \
+	terl_any \
+	terl_boolean \
+	terl_binary \
+	terl_float \
+	terl_integer \
+	terl_list \
+	terl_pid \
+	terl_string \
+	terl_union \
+	type_check \
+	type_check_compiler_opts \
+	type_err_msg \
+	type_internal
 
-include vsn.mk
-VSN = $(TYPE_CHECKER_VSN)
+HRL_FILES= \
+	type_macros.hrl \
+	type_checker_state.hrl
 
-SPECIAL_TARGETS =
+ERLANG_TYPES = priv/erlang_types.eterm
 
-#
-# Default Subdir Targets
-#
-include $(ERL_TOP)/make/otp_subdir.mk
+ERL_FILES= $(MODULES:%=$(SRC)/%.erl)
+HEADER_FILES = $(HRL_FILES:%=$(SRC)/%)
+BEAM_FILES = $(MODULES:%=$(EBIN)/%.beam)
+
+INSTALL_FILES= $(BEAM_FILES) $(ERLANG_TYPES)
+TARGET_FILES= $(INSTALL_FILES)
+
+
+# ------------------------------------------------------------------------------
+# Flags
+# ------------------------------------------------------------------------------
+
+ERL_COMPILE_FLAGS += +inline +warn_unused_import -Werror -W
+
+# ------------------------------------------------------------------------------
+# Targets
+# ------------------------------------------------------------------------------
+
+compile: $(TARGET_FILES)
+
+clean:
+	rm -fr $(BEAM_FILES)
+
