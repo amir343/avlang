@@ -1,3 +1,17 @@
+%% Copyright (c) 2016 Amir Moulavi
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+
 -module(type_err_msg).
 
 -export([ format_error/1
@@ -6,6 +20,11 @@
 
 -export([ internal_format_error/3
         ]).
+
+-define(RED(Str), "\e[31m" ++ Str ++ "\e[0m").
+-define(GRN(Str), "\e[1;32m" ++ Str ++ "\e[0m").
+-define(YLW(Str), "\e[1;33m" ++ Str ++ "\e[0m").
+-define(BLU(Str), "\e[1;34m" ++ Str ++ "\e[0m").
 
 format_error(T) ->
   try
@@ -291,64 +310,68 @@ list_to_string([H|[_, _] = T], Res) ->
 list_to_string([H|[_] = T], Res) ->
   list_to_string(T, io_lib:format("~s~p and ", [Res, H])).
 
+pp_type(T) ->
+  ?GRN(p_type(T)).
 
-pp_type({terl_type, T}) ->
+p_type({terl_type, T}) ->
   io_lib:format("~s", [T]);
 
-pp_type({terl_generic_type, T}) ->
+p_type({terl_generic_type, T}) ->
   io_lib:format("'~s'", [T]);
 
-pp_type({list_type, T}) ->
-  io_lib:format("[~s]", [pp_type(T)]);
+p_type({list_type, T}) ->
+  io_lib:format("[~s]", [p_type(T)]);
 
-pp_type({tuple_type, Ts}) ->
-  TT = [pp_type(T) || T <- Ts],
+p_type({tuple_type, Ts}) ->
+  TT = [p_type(T) || T <- Ts],
   io_lib:format("{~s}", [list_to_string_sep(TT, ", ")]);
 
-pp_type({fun_type, Is, O}) ->
-  TIs = [pp_type(I) || I <- Is],
-  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), pp_type(O)]);
+p_type({fun_type, Is, O}) ->
+  TIs = [p_type(I) || I <- Is],
+  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), p_type(O)]);
 
-pp_type({untyped_fun, nil, nil}) ->
+p_type({untyped_fun, nil, nil}) ->
   "(..) -> ..";
 
-pp_type({union_type, Ts}) ->
-  TEs = [pp_type(T) || T <- Ts],
+p_type({union_type, Ts}) ->
+  TEs = [p_type(T) || T <- Ts],
   io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);
 
-pp_type({terl_atom_type, T}) ->
+p_type({terl_atom_type, T}) ->
   io_lib:format("~s", [T]);
 
-pp_type({record_type, N}) ->
+p_type({record_type, N}) ->
   io_lib:format("#~s", [N]);
 
-pp_type(T) when is_list(T) ->
-  Ts = [pp_type(TT) || TT <- T],
+p_type(T) when is_list(T) ->
+  Ts = [p_type(TT) || TT <- T],
   io_lib:format("~s", [list_to_string_sep(Ts, "; ")]);
 
-pp_type(undefined) ->
+p_type(undefined) ->
   "?";
 
-pp_type(T) ->
+p_type(T) ->
   T.
 
+pp_expr(E) ->
+  ?YLW(p_expr(E)).
 
-pp_expr({var, _, V}) ->
+p_expr({var, _, V}) ->
   io_lib:format("~s", [V]);
 
-pp_expr({integer, _, V}) ->
+p_expr({integer, _, V}) ->
   io_lib:format("~p", [V]);
 
-pp_expr({atom, _, V}) ->
+p_expr({atom, _, V}) ->
   io_lib:format("~p", [V]);
 
-pp_expr({op, _, Op, L, R}) ->
-  io_lib:format("~s ~s ~s", [pp_expr(L), Op, pp_expr(R)]);
+p_expr({op, _, Op, L, R}) ->
+  io_lib:format("~s ~s ~s", [p_expr(L), Op, p_expr(R)]);
 
-pp_expr(S) when is_list(S) ->
+p_expr(S) when is_list(S) ->
   io_lib:format("~s", [S]);
 
-pp_expr(V) ->
+p_expr(V) ->
   io_lib:format("~p", [V]).
 
 

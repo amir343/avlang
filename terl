@@ -28,10 +28,10 @@ function evaluate {
     [[ -z "$1" ]] && echo "No input given to eval" && exit 1
 
     bootstrap/bin/erl \
-        -hidden -noshell -sname test -connect_all false \
+        -hidden \
         -pa ${TYPE_CHECK}/ebin \
         -pa ${COMPILER}/ebin \
-        -eval $1
+        -eval $1 -run init stop -noshell
 }
 
 function run_test {
