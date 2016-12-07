@@ -14,7 +14,6 @@ autom4te.cache
 !/bootstrap/lib/kernel/ebin/*.beam
 !/bootstrap/lib/stdlib/ebin/*.beam
 !/bootstrap/lib/parsetools/ebin/*.beam
-!/erts/preloaded/ebin/*.beam
 !/lib/*/test/*_SUITE_data/*.beam
 
 #
@@ -46,7 +45,6 @@ JAVADOC-GENERATED
 /config.log
 /config.status
 
-/bootstrap/bin/*
 /bootstrap/target
 !/bootstrap/bin/*.boot
 
