@@ -48,6 +48,16 @@
 -include("../compiler/include/terl_compiler.hrl").
 
 %%------------------------------------------------------------------------------
+%%  MACROS
+%%------------------------------------------------------------------------------
+
+%% TODO: how many iterations until we give up?
+-define(MAX_ITERATIONS, 10).
+
+%%------------------------------------------------------------------------------
+%%  API
+%%------------------------------------------------------------------------------
+
 module(#compile{} = Compile) ->
   run_passes([Compile], []).
 
@@ -60,6 +70,11 @@ modules([#compile{} | _] = Compiles) ->
 modules([#compile{} | _] = Compiles, Opts) ->
   run_passes(Compiles, Opts).
 
+
+%%------------------------------------------------------------------------------
+%%  INTERNAL
+%%------------------------------------------------------------------------------
+
 run_passes([#compile{} | _] = Compiles, Opts) ->
   try
     Opts1 = type_check_compiler_opts:options_of_interest(Opts),
@@ -69,7 +84,7 @@ run_passes([#compile{} | _] = Compiles, Opts) ->
     St3   = state_dl:export_whitelist(St2, export_whitelist()),
     St4   = run_one_time_passes(Compiles, St3, Opts),
     St5   = type_check_loop(1, St4, infinity),
-    format_result(St5)
+    generate_type_check_output(St5)
   catch
     _:L when is_list(L) -> {error, L, []};
     EE:Err ->
@@ -77,6 +92,11 @@ run_passes([#compile{} | _] = Compiles, Opts) ->
       io:format("Something bad happened, type system apologizes: ~p:~p~n"
                , [EE, Err])
   end.
+
+
+%% @doc For all given modules:
+%% - Create neccessary data structures for holding types info
+%% - Run the type lint phase
 run_one_time_passes(Compiles, State, _Opts) ->
   lists:foldl(fun(#compile{ifile = FileName, code = Forms} = Compile, St0) ->
                   MS  = state_dl:new_module_scope(FileName, Forms, Compile),
@@ -85,8 +105,14 @@ run_one_time_passes(Compiles, State, _Opts) ->
                   state_dl:save_current_module_scope(St2)
               end, State, Compiles).
 
-%% TODO: how many iterations until we give up?
-type_check_loop(10, S, _) ->
+%% @doc Start from a set of modules, iteratively tries to infer types
+%% for each module and continues doing that until it can reduce number
+%% of unknown types or it hits the `MAX_ITERATIONS'.
+%% So in pass number 1 it goes through all modules and tries to infer and
+%% type check everything. In the seocond pass it continues doing the same thing
+%% but this it compares number of undefined types to previous phase and continue
+%% to third pass iff the number of undefined is reduced.
+type_check_loop(?MAX_ITERATIONS, S, _) ->
   S;
 type_check_loop(PassN, State=#state{}, PUndefs) ->
   FP = state_dl:first_pass(State),
@@ -145,7 +171,8 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
       end
   end.
 
-format_result(State=#state{}) ->
+%% @doc Generate type check output that is used by compiler module
+generate_type_check_output(State=#state{}) ->
   ModuleScopes = state_dl:module_scopes(State),
   {NErrors, Result} =
     lists:foldl(fun({_M, MS}, {Errs0, Acc}) ->
@@ -191,7 +218,10 @@ count_undefined_global_scope(State=#state{}) ->
              || T <- Ts])
     end, 0, dict:to_list(GS)).
 
-
+%% @doc Read type info for Erlang standard library from a file called
+%% `erlang_types.eterm'.
+%% TODO: This file is constructed manually but should be
+%% created as part of building type checker
 bootstrap_erlang_types() ->
   PrivDir = code:lib_dir(type_checker, priv),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "erlang_types.eterm")),
@@ -222,11 +252,29 @@ bootstrap_erlang_types() ->
       end, {dict:new(), dict:new()}, ParsedSignature),
   Sigs.
 
+substitute_type_alias(T, Aliases) ->
+  type_internal:type_map(
+    T, fun(Type) ->
+           case Type of
+             {terl_generic_type, N} ->
+               case dict:find(N, Aliases) of
+                 {ok, A} ->
+                   A;
+                 error -> Type
+               end;
+             _ -> Type
+           end
+       end).
+
+%% @doc When type checking the remote calls there are assertions to see
+%% if the found remote function is exported or not. `export_whitelist'
+%% contains the modules the we can skip this check for.
 export_whitelist() ->
   PrivDir = code:lib_dir(type_checker, priv),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "export_whitelist")),
   gb_sets:from_list(Term).
 
+%% @doc What are the types of Erlang function guards?
 erlang_guard_signature() ->
   PrivDir = code:lib_dir(type_checker, priv),
   {ok, [Term | _]} =
@@ -242,20 +290,6 @@ erlang_guard_signature() ->
                       throw(E)
                   end
               end, dict:new(), Term).
-
-substitute_type_alias(T, Aliases) ->
-  type_internal:type_map(
-    T, fun(Type) ->
-           case Type of
-             {terl_generic_type, N} ->
-               case dict:find(N, Aliases) of
-                 {ok, A} ->
-                   A;
-                 error -> Type
-               end;
-             _ -> Type
-           end
-       end).
 
 type_lint(St0) ->
   Forms = state_dl:forms(St0),
