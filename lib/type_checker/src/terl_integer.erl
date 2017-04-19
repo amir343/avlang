@@ -14,12 +14,24 @@
 
 -module(terl_integer).
 
+-behaviour(type_interface).
+
 -export([ op/1
         , op/2
         , lub/1
         ]).
 
+-export([ abs_form/0
+        , lub/0
+        , name/0
+        ]).
+
 -include("type_macros.hrl").
+
+abs_form() -> {terl_type, 'Integer'}.
+lub()      -> 'Number'.
+name()     -> 'Integer'.
+
 
 op('/', ?INTEGER)     -> ?INTEGER;
 op('+', ?INTEGER)     -> ?INTEGER;

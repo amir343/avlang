@@ -12,14 +12,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(terl_any).
+-module(terl_reference).
 
 -behaviour(type_interface).
-
--export([ op/1
-        , op/2
-        , lub/1
-        ]).
 
 -export([ abs_form/0
         , lub/0
@@ -28,18 +23,10 @@
 
 -include("type_macros.hrl").
 
-abs_form() -> {terl_type, 'Any'}.
+abs_form() -> {terl_type, 'Reference'}.
 lub()      -> 'Any'.
-name()     -> 'Any'.
+name()     -> 'Reference'.
 
-op('==', _)          -> ?BOOLEAN;
-op('=:=', _)         -> ?BOOLEAN;
 
-op('/=', _)          -> ?BOOLEAN;
-op('=/=', _)         -> ?BOOLEAN;
 
-op(_, _) -> ?INVALID.
 
-op(_)    -> ?INVALID.
-
-lub(_)   -> ?ANY.

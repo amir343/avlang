@@ -1,5 +1,4 @@
-#! /bin/bash
-# Copyright (c) 2016 Amir Moulavi
+# Copyright (c) 2016-2017 Amir Moulavi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +16,9 @@ include $(TERL_ROOT)/make/common_targets.mk
 
 MODULES =  \
 	state_dl \
+  type_interface \
 	terl_any \
+	terl_atom \
 	terl_boolean \
 	terl_binary \
 	terl_float \
@@ -26,10 +27,14 @@ MODULES =  \
 	terl_pid \
 	terl_string \
 	terl_union \
+	terl_none \
+	terl_reference \
+	terl_port \
 	type_check \
 	type_check_compiler_opts \
 	type_err_msg \
-	type_internal
+	type_internal \
+	type_api
 
 HRL_FILES= \
 	type_macros.hrl \
@@ -49,7 +54,7 @@ TARGET_FILES= $(INSTALL_FILES)
 # Flags
 # ------------------------------------------------------------------------------
 
-ERL_COMPILE_FLAGS += +inline +warn_unused_import -Werror -W
+ERL_COMPILE_FLAGS += +inline +warn_unused_import -Werror -W -pa ebin
 
 # ------------------------------------------------------------------------------
 # Targets

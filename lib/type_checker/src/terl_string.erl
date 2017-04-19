@@ -14,12 +14,23 @@
 
 -module(terl_string).
 
+-behaviour(type_interface).
+
 -export([ op/1
         , op/2
         , lub/1
         ]).
 
+-export([ abs_form/0
+        , lub/0
+        , name/0
+        ]).
+
 -include("type_macros.hrl").
+
+abs_form() -> {terl_type, 'String'}.
+lub()      -> 'Any'.
+name()     -> 'String'.
 
 op('++', ?STRING) -> ?STRING;
 op('--', ?STRING) -> ?STRING;
