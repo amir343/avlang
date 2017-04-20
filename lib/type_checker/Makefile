@@ -21,6 +21,7 @@ MODULES =  \
 	terl_atom \
 	terl_boolean \
 	terl_binary \
+	terl_char \
 	terl_float \
 	terl_integer \
 	terl_list \

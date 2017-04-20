@@ -40,11 +40,17 @@
         , var_terminals/1
         ]).
 
+%%------------------------------------------------------------------------------
+
 -include("type_macros.hrl").
 -include("type_checker_state.hrl").
 
+%%------------------------------------------------------------------------------
+
 module_of({terl_type, 'Integer'}) ->
   ?INTEGER_MOD;
+module_of({terl_type, 'Char'}) ->
+  ?CHAR_MOD;
 module_of({terl_type, 'Float'}) ->
   ?FLOAT_MOD;
 module_of({terl_type, 'String'}) ->
@@ -154,20 +160,21 @@ invalid_operator() ->
 tag_built_in(Type) ->
   {terl_type, Type}.
 
-built_in('Any') -> true;
-built_in('Atom') -> true;
-built_in('Binary') -> true;
-built_in('Boolean') -> true;
-built_in('Float') -> true;
-built_in('Integer') -> true;
-built_in('None') -> true;
-built_in('Number') -> true;
-built_in('Reference') -> true;
-built_in('String') -> true;
-built_in('Pid') -> true;
-built_in('Port') -> true;
+built_in('Any')         -> true;
+built_in('Atom')        -> true;
+built_in('Binary')      -> true;
+built_in('Char')        -> true;
+built_in('Boolean')     -> true;
+built_in('Float')       -> true;
+built_in('Integer')     -> true;
+built_in('None')        -> true;
+built_in('Number')      -> true;
+built_in('Reference')   -> true;
+built_in('String')      -> true;
+built_in('Pid')         -> true;
+built_in('Port')        -> true;
 
-built_in(_) -> false.
+built_in(_)             -> false.
 
 
 %% Check if given two types are equivalent
@@ -363,15 +370,7 @@ gm({terl_generic_type, G}, T, Mappings, Errs) ->
              {ok, Set} -> Set;
              error     -> gb_sets:new()
            end,
-  NewSet0 = gb_sets:add(T, OldSet),
-  NewSet = case lub_on_list(gb_sets:to_list(NewSet0)) of
-             ?ANY ->
-               case gb_sets:is_member(?ANY, NewSet0) of
-                 true -> gb_sets:add(?ANY, gb_sets:new());
-                 false -> NewSet0
-               end;
-             LUBT -> gb_sets:add(LUBT, gb_sets:new())
-           end,
+  NewSet = gb_sets:add(T, OldSet),
   Errs1 = case gb_sets:size(NewSet) > 1 of
             true ->
               [{can_not_instantiate_generic_type, G, gb_sets:to_list(NewSet)}];
@@ -400,11 +399,6 @@ gm(T1, _T2, Mappings, Errs) ->
   {generic_to_undefined(T1), Mappings, Errs}.
 
 
-lub_on_list(Types) ->
-  lists:foldl(fun(Type, Acc) ->
-                  lub(Type, Acc)
-              end, nothing, Types).
-
 generic_to_undefined(Type) ->
   Map = fun({terl_generic_type, _}) ->
             undefined;
@@ -422,6 +416,8 @@ var_terminals(Expr) ->
   var_terminals(Expr, []).
 
 var_terminals({integer, _, _}, Rs) ->
+  Rs;
+var_terminals({char, _, _}, Rs) ->
   Rs;
 var_terminals({atom, _, _}, Rs) ->
   Rs;

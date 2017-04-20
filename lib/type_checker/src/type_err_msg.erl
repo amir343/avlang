@@ -89,11 +89,12 @@ format_error0({non_matching_tuple_length, TT1, TT2}) ->
     "materialise generic types",
     [pp_type(TT1), pp_type(TT2)]);
 
-format_error0({can_not_instantiate_generic_type, T, Vs}) ->
+format_error0({can_not_instantiate_generic_type, T, Vs, FType, {M, F, A}}) ->
   io_lib:format(
-    "Type parameter ~p can be materialised to several types in "
-    "function call: ~s",
-    [T, list_to_string_sep([pp_type(V) || V <- Vs], ", ")]);
+    "Function call ~p:~p/~p has type '~s' and "
+    "type parameter ~p can be materialised to several types: ~s",
+    [M, F, A, pp_type(FType), T,
+     list_to_string_sep([pp_type(V) || V <- Vs], ", ")]);
 
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(

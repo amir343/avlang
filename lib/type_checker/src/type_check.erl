@@ -1026,6 +1026,9 @@ type_of({atom, _, true}, S) ->
 type_of({atom, _, false}, S) ->
   {type_internal:tag_built_in('Boolean'), S};
 
+type_of({char, _, _}, S) ->
+  {type_internal:tag_built_in('Char'), S};
+
 type_of({atom, _, T}, S) ->
   {{terl_atom_type, T}, S};
 
@@ -1123,7 +1126,7 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
                                      end, {[], State1}, Args),
   FTypes0 = find_fun_type([M, F, Arity, State2], FunLookup),
   {State21, FTypes, GenericTypes} =
-    materialise_if_generic(FTypes0, TypedArgs, L, State2),
+    materialise_if_generic(FTypes0, TypedArgs, L, {M, F, Arity}, State2),
   State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
@@ -1172,8 +1175,9 @@ type_of({call, L, NN, Args}, State0) ->
                     {Ts ++ [T], S1}
                 end, {[], State1}, Args),
   FTypes0 = find_fun_type([N, Arity, State2], FunLookup),
+  M = state_dl:module_name(State2),
   {State21, FTypes, GenericTypes} =
-    materialise_if_generic(FTypes0, TypedArgs, L, State2),
+    materialise_if_generic(FTypes0, TypedArgs, L, {M, N, Arity}, State2),
   State3  = assert_found_fun_type(FTypes, L, NN, Arity, State21),
 
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
@@ -1360,7 +1364,7 @@ type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
   {undefined, State}.
 
-materialise_if_generic(FTypes, TypedArgs, L, State) ->
+materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
   lists:foldl(
     fun(FType, {St, Acc, Generic}) ->
         {FT, Mps, Errs} =
@@ -1376,10 +1380,17 @@ materialise_if_generic(FTypes, TypedArgs, L, State) ->
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
+                NErrs =
+                  lists:map(
+                    fun({can_not_instantiate_generic_type, T, V}) ->
+                        {can_not_instantiate_generic_type, T, V, FType, Call};
+                       (W) ->
+                        W
+                    end, Errs),
                 St1 =
                   lists:foldl(fun(Err, S0) ->
                                   state_dl:update_errors(S0, L, Err)
-                              end, St, Errs),
+                              end, St, NErrs),
                 {St1, Acc ++ [undefined], true};
               false ->
                 {St, Acc ++ [FType], Generic}
