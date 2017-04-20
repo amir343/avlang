@@ -12,34 +12,37 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(terl_any).
+-module(type_api).
 
--behaviour(type_interface).
-
--export([ op/1
-        , op/2
-        , lub/1
+-export([ built_in_types/0
+        , built_in_types_info/0
         ]).
 
--export([ abs_form/0
-        , lub/0
-        , name/0
-        ]).
 
--include("type_macros.hrl").
+built_in_types() ->
+  [M:name() || M <- built_in_modules()].
 
-abs_form() -> {terl_type, 'Any'}.
-lub()      -> 'Any'.
-name()     -> 'Any'.
+built_in_types_info() ->
+  [{M:name(), M:lub(), M:abs_form()} || M <- built_in_modules()].
 
-op('==', _)          -> ?BOOLEAN;
-op('=:=', _)         -> ?BOOLEAN;
+built_in_modules() ->
+  [ terl_any
+  , terl_atom
+  , terl_binary
+  , terl_boolean
+  , terl_float
+  , terl_integer
+  , terl_none
+  , terl_number
+  , terl_reference
+  , terl_string
+  , terl_pid
+  , terl_port
+  ].
 
-op('/=', _)          -> ?BOOLEAN;
-op('=/=', _)         -> ?BOOLEAN;
 
-op(_, _) -> ?INVALID.
 
-op(_)    -> ?INVALID.
 
-lub(_)   -> ?ANY.
+
+
+

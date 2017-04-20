@@ -14,12 +14,23 @@
 
 -module(terl_pid).
 
+-behaviour(type_interface).
+
 -export([ op/1
         , op/2
         , lub/1
         ]).
 
 -include("type_macros.hrl").
+
+-export([ abs_form/0
+        , lub/0
+        , name/0
+        ]).
+
+abs_form() -> {terl_type, 'Pid'}.
+lub()      -> 'Any'.
+name()     -> 'Pid'.
 
 op('!', T)  -> T;
 op(_, _)    -> ?INVALID.

@@ -12,34 +12,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(terl_any).
+-module(type_interface).
 
--behaviour(type_interface).
-
--export([ op/1
-        , op/2
-        , lub/1
-        ]).
-
--export([ abs_form/0
-        , lub/0
-        , name/0
-        ]).
-
--include("type_macros.hrl").
-
-abs_form() -> {terl_type, 'Any'}.
-lub()      -> 'Any'.
-name()     -> 'Any'.
-
-op('==', _)          -> ?BOOLEAN;
-op('=:=', _)         -> ?BOOLEAN;
-
-op('/=', _)          -> ?BOOLEAN;
-op('=/=', _)         -> ?BOOLEAN;
-
-op(_, _) -> ?INVALID.
-
-op(_)    -> ?INVALID.
-
-lub(_)   -> ?ANY.
+-callback name() -> Name :: atom().
+-callback lub() -> Lub :: atom().
+-callback abs_form() -> AbstractForm :: term().

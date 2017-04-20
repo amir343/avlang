@@ -14,13 +14,25 @@
 
 -module(terl_binary).
 
+-behaviour(type_interface).
+
 -export([ op/1
         , op/2
         , lub/1
         , type_specifier_list/1
         ]).
 
+-export([ abs_form/0
+        , lub/0
+        , name/0
+        ]).
+
 -include("type_macros.hrl").
+
+abs_form() -> {terl_type, 'Binary'}.
+lub()      -> 'Any'.
+name()     -> 'Binary'.
+
 
 op(_, _) -> ?INVALID.
 
