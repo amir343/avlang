@@ -21,12 +21,13 @@
         , lub/1
         ]).
 
--include("type_macros.hrl").
-
 -export([ abs_form/0
         , lub/0
         , name/0
         ]).
+
+-include("type_macros.hrl").
+-define(SELF, ?FLOAT).
 
 abs_form() -> {terl_type, 'Float'}.
 lub()      -> 'Number'.
@@ -34,15 +35,15 @@ name()     -> 'Float'.
 
 op(_, undefined)  -> ?UNDEFINED;
 
-op('/', ?FLOAT)    -> ?FLOAT;
-op('+', ?FLOAT)    -> ?FLOAT;
-op('-', ?FLOAT)    -> ?FLOAT;
-op('*', ?FLOAT)    -> ?FLOAT;
+op('/', ?SELF)    -> ?SELF;
+op('+', ?SELF)    -> ?SELF;
+op('-', ?SELF)    -> ?SELF;
+op('*', ?SELF)    -> ?SELF;
 
-op('+', ?INTEGER)  -> ?FLOAT;
-op('*', ?INTEGER)  -> ?FLOAT;
-op('/', ?INTEGER)  -> ?FLOAT;
-op('-', ?INTEGER)  -> ?FLOAT;
+op('+', ?INTEGER)  -> ?SELF;
+op('*', ?INTEGER)  -> ?SELF;
+op('/', ?INTEGER)  -> ?SELF;
+op('-', ?INTEGER)  -> ?SELF;
 
 op(Op, {union_type, Ts}) ->
   [op(Op, T) || T <- Ts];
@@ -57,27 +58,27 @@ op('/=', _)       -> ?BOOLEAN;
 op('=/=', _)      -> ?BOOLEAN;
 
 op('>=', ?INTEGER) -> ?BOOLEAN;
-op('>=', ?FLOAT)   -> ?BOOLEAN;
+op('>=', ?SELF)   -> ?BOOLEAN;
 
 op('=<', ?INTEGER) -> ?BOOLEAN;
-op('=<', ?FLOAT)   -> ?BOOLEAN;
+op('=<', ?SELF)   -> ?BOOLEAN;
 
 op('<', ?INTEGER)  -> ?BOOLEAN;
-op('<', ?FLOAT)    -> ?BOOLEAN;
+op('<', ?SELF)    -> ?BOOLEAN;
 
 op('>', ?INTEGER)  -> ?BOOLEAN;
-op('>', ?FLOAT)    -> ?BOOLEAN;
+op('>', ?SELF)    -> ?BOOLEAN;
 
 op(_, _)          -> ?INVALID.
 
 %%-- unary ---------------------------------------
 
-op('+')           -> ?FLOAT;
-op('-')           -> ?FLOAT;
+op('+')           -> ?SELF;
+op('-')           -> ?SELF;
 
 op(_)             -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lub(?FLOAT)       -> ?FLOAT;
+lub(?SELF)       -> ?SELF;
 lub(_)            -> ?ANY.

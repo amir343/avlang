@@ -27,19 +27,20 @@
         ]).
 
 -include("type_macros.hrl").
+-define(SELF, ?STRING).
 
 abs_form() -> {terl_type, 'String'}.
 lub()      -> 'Any'.
 name()     -> 'String'.
 
-op('++', ?STRING) -> ?STRING;
-op('--', ?STRING) -> ?STRING;
+op('++', ?SELF) -> ?SELF;
+op('--', ?SELF) -> ?SELF;
 
 op(Op, {union_type, Ts}) ->
   [op(Op, T) || T <- Ts];
 
-op('++', undefined) -> ?STRING;
-op('--', undefined) -> ?STRING;
+op('++', undefined) -> ?SELF;
+op('--', undefined) -> ?SELF;
 
 op(_, undefined) -> ?UNDEFINED;
 
@@ -51,5 +52,5 @@ op(_)            -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lub(?STRING)     -> ?STRING;
+lub(?SELF)     -> ?SELF;
 lub(_)           -> ?ANY.

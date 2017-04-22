@@ -370,7 +370,7 @@ gm({terl_generic_type, G}, T, Mappings, Errs) ->
              {ok, Set} -> Set;
              error     -> gb_sets:new()
            end,
-  NewSet = gb_sets:add(T, OldSet),
+  NewSet = add_type(T, OldSet),
   Errs1 = case gb_sets:size(NewSet) > 1 of
             true ->
               [{can_not_instantiate_generic_type, G, gb_sets:to_list(NewSet)}];
@@ -398,6 +398,24 @@ gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
 gm(T1, _T2, Mappings, Errs) ->
   {generic_to_undefined(T1), Mappings, Errs}.
 
+
+add_type({list_type, _} = T, OldSet) ->
+  reduce_list_types(T, OldSet);
+add_type(T, OldSet) ->
+  gb_sets:add(T, OldSet).
+
+reduce_list_types({list_type, nothing} = T, OldSet) ->
+  case lists:keyfind(list_type, 1, gb_sets:to_list(OldSet)) of
+    false -> gb_sets:add(T, OldSet);
+    _     -> OldSet
+  end;
+reduce_list_types({list_type, _} = T, OldSet) ->
+  case gb_sets:is_member({list_type, nothing}, OldSet) of
+    true ->
+      gb_sets:add(T, gb_sets:delete({list_type, nothing}, OldSet));
+    false ->
+      gb_sets:add(T, OldSet)
+  end.
 
 generic_to_undefined(Type) ->
   Map = fun({terl_generic_type, _}) ->
