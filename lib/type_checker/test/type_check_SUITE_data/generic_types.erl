@@ -1,6 +1,5 @@
 -module(generic_types).
 
-
 my_map :: ([], Any) -> [];
           ([A], (A -> B)) -> [B].
 my_map([], _F) ->

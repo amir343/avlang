@@ -26,6 +26,8 @@
         , name/0
         ]).
 
+-define(SELF, ?INTEGER).
+
 -include("type_macros.hrl").
 
 abs_form() -> {terl_type, 'Integer'}.
@@ -33,41 +35,41 @@ lub()      -> 'Number'.
 name()     -> 'Integer'.
 
 
-op('/', ?INTEGER)     -> ?INTEGER;
-op('+', ?INTEGER)     -> ?INTEGER;
-op('-', ?INTEGER)     -> ?INTEGER;
-op('*', ?INTEGER)     -> ?INTEGER;
+op('/', ?SELF)     -> ?SELF;
+op('+', ?SELF)     -> ?SELF;
+op('-', ?SELF)     -> ?SELF;
+op('*', ?SELF)     -> ?SELF;
 
-op('band', ?INTEGER)  -> ?INTEGER;
-op('bor', ?INTEGER)   -> ?INTEGER;
-op('bxor', ?INTEGER)  -> ?INTEGER;
-op('bsl', ?INTEGER)   -> ?INTEGER;
-op('bsr', ?INTEGER)   -> ?INTEGER;
-op('bnot', ?INTEGER)  -> ?INTEGER;
+op('band', ?SELF)  -> ?SELF;
+op('bor', ?SELF)   -> ?SELF;
+op('bxor', ?SELF)  -> ?SELF;
+op('bsl', ?SELF)   -> ?SELF;
+op('bsr', ?SELF)   -> ?SELF;
+op('bnot', ?SELF)  -> ?SELF;
 
-op('div', ?INTEGER)   -> ?INTEGER;
+op('div', ?SELF)   -> ?SELF;
 op('div', ?FLOAT)     -> ?INVALID;
 
-op('rem', ?INTEGER)   -> ?INTEGER;
+op('rem', ?SELF)   -> ?SELF;
 op('rem', ?FLOAT)     -> ?INVALID;
 
 op(Op, {union_type, Ts}) ->
   [op(Op, T) || T <- Ts];
 
-op('/', undefined)   -> ?INTEGER;
-op('+', undefined)   -> ?INTEGER;
-op('-', undefined)   -> ?INTEGER;
-op('*', undefined)   -> ?INTEGER;
+op('/', undefined)   -> ?SELF;
+op('+', undefined)   -> ?SELF;
+op('-', undefined)   -> ?SELF;
+op('*', undefined)   -> ?SELF;
 
-op('band', undefined) -> ?INTEGER;
-op('bor', undefined)  -> ?INTEGER;
-op('bxor', undefined)  -> ?INTEGER;
-op('bsl', undefined)  -> ?INTEGER;
-op('bsr', undefined)  -> ?INTEGER;
-op('bnot', undefined) -> ?INTEGER;
+op('band', undefined) -> ?SELF;
+op('bor', undefined)  -> ?SELF;
+op('bxor', undefined)  -> ?SELF;
+op('bsl', undefined)  -> ?SELF;
+op('bsr', undefined)  -> ?SELF;
+op('bnot', undefined) -> ?SELF;
 
-op('div', undefined)  -> ?INTEGER;
-op('rem', undefined)  -> ?INTEGER;
+op('div', undefined)  -> ?SELF;
+op('rem', undefined)  -> ?SELF;
 
 op(_, undefined)     -> ?UNDEFINED;
 
@@ -83,27 +85,27 @@ op('=:=', _)         -> ?BOOLEAN;
 op('/=', _)          -> ?BOOLEAN;
 op('=/=', _)         -> ?BOOLEAN;
 
-op('>=', ?INTEGER)    -> ?BOOLEAN;
+op('>=', ?SELF)    -> ?BOOLEAN;
 op('>=', ?FLOAT)      -> ?BOOLEAN;
 
-op('=<', ?INTEGER)    -> ?BOOLEAN;
+op('=<', ?SELF)    -> ?BOOLEAN;
 op('=<', ?FLOAT)      -> ?BOOLEAN;
 
-op('<', ?INTEGER)     -> ?BOOLEAN;
+op('<', ?SELF)     -> ?BOOLEAN;
 op('<', ?FLOAT)       -> ?BOOLEAN;
 
-op('>', ?INTEGER)     -> ?BOOLEAN;
+op('>', ?SELF)     -> ?BOOLEAN;
 op('>', ?FLOAT)       -> ?BOOLEAN;
 
 op(_, _)             -> ?INVALID.
 
 %%-- unary ---------------------------------------
 
-op('+')              -> ?INTEGER;
-op('-')              -> ?INTEGER;
+op('+')              -> ?SELF;
+op('-')              -> ?SELF;
 op(_)                -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lub(?INTEGER)        -> ?INTEGER;
-lub(_)               -> ?ANY.
+lub(?SELF)        -> ?SELF;
+lub(_)            -> ?ANY.

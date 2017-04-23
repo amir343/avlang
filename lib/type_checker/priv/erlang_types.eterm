@@ -55,4 +55,5 @@
 , "lists:foldr :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
 , "lists:all :: ((A -> Boolean), [A]) -> Boolean."
 
+, "string:chars :: (Char, Integer) -> String."
 ].

@@ -16,6 +16,7 @@
 
 -export([ built_in_types/0
         , built_in_types_info/0
+        , stdlib_types/0
         ]).
 
 
@@ -40,9 +41,11 @@ built_in_modules() ->
   , terl_port
   ].
 
-
-
-
-
-
-
+stdlib_types() ->
+  lists:foreach(
+    fun({K, Vs}) ->
+        lists:foreach(
+          fun(V) ->
+              io:format("~p:: ~s~n", [K, type_err_msg:p_type(V)])
+          end, Vs)
+    end, dict:to_list(type_check:bootstrap_erlang_types())).

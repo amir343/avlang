@@ -28,6 +28,7 @@
         ]).
 
 -include("type_macros.hrl").
+-define(SELF, ?BINARY).
 
 abs_form() -> {terl_type, 'Binary'}.
 lub()      -> 'Any'.
@@ -40,7 +41,7 @@ op(_)    -> ?INVALID.
 
 %%-- least common supertype ----------------------
 
-lub(?BINARY)         -> ?BINARY;
+lub(?SELF)         -> ?SELF;
 lub(_)               -> ?ANY.
 
 
@@ -50,12 +51,12 @@ type_specifier_list(TSLs) ->
   Types = [tsl(T) || T <- TSLs],
   [T || T <- Types, T =/= nil].
 
-tsl(binary)    -> ?BINARY;
+tsl(binary)    -> ?SELF;
 tsl(integer)   -> ?INTEGER;
 tsl(float)     -> ?FLOAT;
-tsl(bytes)     -> ?BINARY;
-tsl(bitstring) -> ?BINARY;
-tsl(bits)      -> ?BINARY;
+tsl(bytes)     -> ?SELF;
+tsl(bitstring) -> ?SELF;
+tsl(bits)      -> ?SELF;
 tsl(utf8)      -> ?INTEGER;
 tsl(utf16)     -> ?INTEGER;
 tsl(utf32)     -> ?INTEGER;
