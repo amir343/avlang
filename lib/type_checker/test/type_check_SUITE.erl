@@ -3,6 +3,7 @@
 
 -export([ all/0
         , test_binary/0
+        , test_char/0
         , test_function_pointer/0
         , test_generic_types/0
         , test_misc/0
@@ -16,6 +17,7 @@
 
 all() ->
   [ test_binary
+  , test_char
   , test_function_pointer
   , test_generic_types
   , test_misc
@@ -48,6 +50,11 @@ test_type_syntax() ->
 
 test_function_pointer() ->
   FileName = "function_pointer_test.erl",
+  CompRec = build_compile_rec(FileName),
+  {ok, [{[], [], _}]} = type_check:module(CompRec).
+
+test_char() ->
+  FileName = "char_test.erl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 

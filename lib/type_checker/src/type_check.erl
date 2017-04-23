@@ -42,6 +42,9 @@
         , modules/2
         ]).
 
+-export([ bootstrap_erlang_types/0
+        ]).
+
 %%------------------------------------------------------------------------------
 
 -include("type_checker_state.hrl").
@@ -1128,9 +1131,9 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
   {State21, FTypes, GenericTypes} =
     materialise_if_generic(FTypes0, TypedArgs, L, {M, F, Arity}, State2),
   State3 = assert_found_remote_fun_type(FTypes, L, M, F, Arity, State21),
-
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
-  Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
+  Matches0 = [FT || {R, _, FT} <- Res, R =:= true],
+  Matches = reduce_fun_sigs(Matches0),
 
   case length(Matches) of
     0 ->
@@ -1147,11 +1150,11 @@ type_of({call, L, {remote, _, M0, F0}, Args}, State0) ->
           {undefined, state_dl:update_errors(State3, Errs)}
       end;
     1 ->
-      {fun_type, _, O} = element(3, hd(Matches)),
-      {O, State3};
+      {fun_type, I, O} = hd(Matches),
+      State4 = infer_arg_type_from_call(Args, TypedArgs, I, State3),
+      {O, State4};
     _ ->
-      MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
-      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
+      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, Matches}},
       {undefined, state_dl:update_errors(State3, [Err])}
   end;
 
@@ -1178,10 +1181,10 @@ type_of({call, L, NN, Args}, State0) ->
   M = state_dl:module_name(State2),
   {State21, FTypes, GenericTypes} =
     materialise_if_generic(FTypes0, TypedArgs, L, {M, N, Arity}, State2),
-  State3  = assert_found_fun_type(FTypes, L, NN, Arity, State21),
-
+  State3  = assert_found_fun_type(FTypes0, L, NN, Arity, State21),
   Res = [find_exact_match(TypedArgs, FType) || FType <- FTypes],
-  Matches = lists:filter(fun({R, _, _}) -> R =:= true end, Res),
+  Matches0 = [FT || {R, _, FT} <- Res, R =:= true],
+  Matches = reduce_fun_sigs(Matches0),
 
   case length(Matches) of
     0 ->
@@ -1225,11 +1228,11 @@ type_of({call, L, NN, Args}, State0) ->
           {undefined, state_dl:update_errors(State3, Errs)}
       end;
     1 ->
-      {fun_type, _, O} = element(3, hd(Matches)),
-      {O, State3};
+      {fun_type, I, O} = hd(Matches),
+      State4 = infer_arg_type_from_call(Args, TypedArgs, I, State3),
+      {O, State4};
     _ ->
-      MatchingTypes = lists:map(fun(E) -> element(3, E) end, Matches),
-      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, MatchingTypes}},
+      Err = {L, ?TYPE_MSG, {multiple_match_for_function_call, Matches}},
       {undefined, state_dl:update_errors(State3, [Err])}
   end;
 
@@ -1364,6 +1367,51 @@ type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
   {undefined, State}.
 
+infer_arg_type_from_call(Args, TypedArgs, FType, State0) ->
+  lists:foldl(fun({{var, _, _} = A, undefined, T}, St0) ->
+                  {_, St1} = update_local(St0, A, T),
+                  St1;
+                 (_, St0) ->
+                  St0
+              end, State0, lists:zip3(Args, TypedArgs, FType)).
+
+reduce_fun_sigs([_] = FTypes) ->
+  FTypes;
+reduce_fun_sigs(FTypes) ->
+  Size0 = length(FTypes),
+  Comb0 = [{A, B} || A <- FTypes, B <- FTypes, A =/= B],
+  Combinations =
+    lists:foldl(fun({A, B}, Acc) ->
+                    case lists:member({B, A}, Acc) of
+                      true  -> Acc;
+                      false -> [{A, B} | Acc]
+                    end
+                end, [], Comb0),
+  Reduced = lists:flatten(
+              lists:map(
+                fun({A, B}) ->
+                    reduce_fun_sigs(A, B)
+                end, Combinations)),
+  NonDuplicates = lists:usort(Reduced),
+  case length(NonDuplicates) < Size0 of
+    true  -> reduce_fun_sigs(NonDuplicates);
+    false -> NonDuplicates
+  end.
+
+%% For any adjacent types T1 and T2 in two argument lists, convert T1 to T2
+%% if T1 is [] and T2 is [A].
+reduce_fun_sigs({fun_type, I1, O1}, {fun_type, I2, O2}) ->
+  Mapped =
+    lists:map(fun({{list_type, _} = T1, {list_type, nothing}}) ->
+                  {T1, T1};
+                 ({{list_type, nothing}, {list_type, _} = T2}) ->
+                  {T2, T2};
+                 (T) ->
+                  T
+              end, lists:zip(I1, I2)),
+  {II1, II2} = lists:unzip(Mapped),
+  [ {fun_type, II1, O1}, {fun_type, II2, O2} ].
+
 materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
   lists:foldl(
     fun(FType, {St, Acc, Generic}) ->
@@ -1372,10 +1420,8 @@ materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
         case length(Errs) of
           0 ->
             case dict:size(Mps) > 0 of
-              true ->
-                {St, Acc ++ [FT], true};
-              false ->
-                {St, Acc ++ [FT], Generic}
+              true  -> {St, Acc ++ [FT], true};
+              false -> {St, Acc ++ [FT], Generic}
             end;
           _ ->
             case dict:size(Mps) > 0 of
@@ -1485,9 +1531,9 @@ find_exact_match(_, undefined) ->
   {false, [], undefined};
 find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
   Res =
-    lists:foldl(fun({T1, T2}, L) ->
-                    L ++ [{type_internal:sub_type_of(T1, T2), T1, T2}]
-                end, [], lists:zip(TypedArgs, Is)),
+    lists:map(fun({T1, T2}) ->
+                  {type_internal:sub_type_of(T1, T2), T1, T2}
+              end, lists:zip(TypedArgs, Is)),
 
   {lists:all(fun({E, _, _}) -> E =:= true end, Res), Res, FType}.
 

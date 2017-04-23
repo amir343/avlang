@@ -230,6 +230,10 @@ type_equivalent(_, _) ->
   false.
 
 
+sub_type_of(undefined, undefined) ->
+  false;
+sub_type_of(undefined, _) ->
+  true;
 sub_type_of({list_type, T1}, {list_type, T2}) ->
   sub_type_of(T1, T2);
 sub_type_of([_ | _] = T1, [_ | _] = T2) ->
@@ -398,7 +402,8 @@ gm({tuple_type, Ts1} = TT1, {tuple_type, Ts2} = TT2, Mappings, Errs) ->
 gm(T1, _T2, Mappings, Errs) ->
   {generic_to_undefined(T1), Mappings, Errs}.
 
-
+add_type(undefined, OldSet) ->
+  OldSet;
 add_type({list_type, _} = T, OldSet) ->
   reduce_list_types(T, OldSet);
 add_type(T, OldSet) ->

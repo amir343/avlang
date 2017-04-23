@@ -16,6 +16,7 @@
 
 -export([ format_error/1
         , pp_type/1
+        , p_type/1
         ]).
 
 -export([ internal_format_error/3
@@ -94,7 +95,7 @@ format_error0({can_not_instantiate_generic_type, T, Vs, FType, {M, F, A}}) ->
     "Function call ~p:~p/~p has type '~s' and "
     "type parameter ~p can be materialised to several types: ~s",
     [M, F, A, pp_type(FType), T,
-     list_to_string_sep([pp_type(V) || V <- Vs], ", ")]);
+     string:join([pp_type(V) || V <- Vs], ", ")]);
 
 format_error0({multi_match_fun_decl_for_fun_sig, N, L2}) ->
   io_lib:format(
@@ -213,7 +214,7 @@ format_error0({declared_inferred_fun_type_do_not_match, N, A, Sig, FType}) ->
 format_error0({multiple_inferred_type, Expr, Ts}) ->
   io_lib:format(
     "Multiple types can be inferred for '~s':~n\t\t~s",
-    [pp_expr(Expr), list_to_string_sep([pp_type(T) || T <- Ts], ", ")]);
+    [pp_expr(Expr), string:join([pp_type(T) || T <- Ts], ", ")]);
 
 format_error0({function_not_exported, M, N, Ar}) ->
   io_lib:format(
@@ -246,8 +247,8 @@ format_error0({non_matching_type_fun_call, M, N, Arity, Ind, Got, Expected}) ->
 format_error0({multiple_match_for_function_call, MatchingTypes}) ->
   Matches = [pp_type(T) || T <- MatchingTypes],
   io_lib:format(
-    "Function call can be matched with mulitple types:~n\t~s",
-    [list_to_string_sep(Matches, "~n\t")]
+    "Function call can be matched with mulitple types:~n\t~s~n",
+    [string:join(Matches, " \n \t")]
    );
 
 format_error0({conflicting_clause_var_type, V, T, T1}) ->
@@ -283,7 +284,7 @@ format_error0({record_type_not_found, N}) ->
 format_error0({bin_segment_conflicting_types, Var, Ts}) ->
   io_lib:format(
     "Variable ~p has conflicting types: ~s",
-    [Var, list_to_string_sep([pp_type(T) || T <- Ts], $,)]
+    [Var, string:join([pp_type(T) || T <- Ts], $,)]
    );
 
 format_error0(W) ->
@@ -325,18 +326,18 @@ p_type({list_type, T}) ->
 
 p_type({tuple_type, Ts}) ->
   TT = [p_type(T) || T <- Ts],
-  io_lib:format("{~s}", [list_to_string_sep(TT, ", ")]);
+  io_lib:format("{~s}", [string:join(TT, ", ")]);
 
 p_type({fun_type, Is, O}) ->
   TIs = [p_type(I) || I <- Is],
-  io_lib:format("(~s) -> ~s", [list_to_string_sep(TIs, ", "), p_type(O)]);
+  io_lib:format("(~s) -> ~s", [string:join(TIs, ", "), p_type(O)]);
 
 p_type({untyped_fun, nil, nil}) ->
   "(..) -> ..";
 
 p_type({union_type, Ts}) ->
   TEs = [p_type(T) || T <- Ts],
-  io_lib:format("~s", [list_to_string_sep(TEs, " | ")]);
+  io_lib:format("~s", [string:join(TEs, " | ")]);
 
 p_type({terl_atom_type, T}) ->
   io_lib:format("~s", [T]);
@@ -346,7 +347,7 @@ p_type({record_type, N}) ->
 
 p_type(T) when is_list(T) ->
   Ts = [p_type(TT) || TT <- T],
-  io_lib:format("~s", [list_to_string_sep(Ts, "; ")]);
+  io_lib:format("~s", [string:join(Ts, "; ")]);
 
 p_type(undefined) ->
   "?";
@@ -374,14 +375,3 @@ p_expr(S) when is_list(S) ->
 
 p_expr(V) ->
   io_lib:format("~p", [V]).
-
-
-list_to_string_sep([], _) ->
-  "";
-list_to_string_sep(List, Sep) ->
-  lists:flatten(lists:reverse(list_to_string_sep1(List, Sep, []))).
-
-list_to_string_sep1([Head | []], _Sep, Acc) ->
-  [Head | Acc];
-list_to_string_sep1([Head | Tail], Sep, Acc) ->
-  list_to_string_sep1(Tail, Sep, [Sep, Head | Acc]).

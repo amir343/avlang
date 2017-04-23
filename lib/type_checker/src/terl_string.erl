@@ -36,6 +36,11 @@ name()     -> 'String'.
 op('++', ?SELF) -> ?SELF;
 op('--', ?SELF) -> ?SELF;
 
+op('=:=', ?SELF) -> ?BOOLEAN;
+op('=/=', ?SELF) -> ?BOOLEAN;
+op('==', ?SELF) -> ?BOOLEAN;
+op('/=', ?SELF) -> ?BOOLEAN;
+
 op(Op, {union_type, Ts}) ->
   [op(Op, T) || T <- Ts];
 
