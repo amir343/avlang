@@ -108,6 +108,8 @@ run_one_time_passes(Compiles, State, _Opts) ->
                   state_dl:save_current_module_scope(St2)
               end, State, Compiles).
 
+%%_-----------------------------------------------------------------------------
+
 %% @doc Start from a set of modules, iteratively tries to infer types
 %% for each module and continues doing that until it can reduce number
 %% of unknown types or it hits the `MAX_ITERATIONS'.
@@ -174,6 +176,8 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
       end
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% @doc Generate type check output that is used by compiler module
 generate_type_check_output(State=#state{}) ->
   ModuleScopes = state_dl:module_scopes(State),
@@ -210,6 +214,8 @@ count_undefined_local_scope(LS=#local_scope{}) ->
           T =:= undefined]) +
     length(type_internal:extract_type_terminals(undefined, Type)).
 
+%%_-----------------------------------------------------------------------------
+
 count_undefined_global_scope(State=#state{}) ->
   GS = state_dl:global(State),
   lists:foldl(
@@ -220,6 +226,8 @@ count_undefined_global_scope(State=#state{}) ->
             [length(type_internal:extract_type_terminals(undefined, T))
              || T <- Ts])
     end, 0, dict:to_list(GS)).
+
+%%_-----------------------------------------------------------------------------
 
 %% @doc Read type info for Erlang standard library from a file called
 %% `erlang_types.eterm'.
@@ -269,6 +277,8 @@ substitute_type_alias(T, Aliases) ->
            end
        end).
 
+%%_-----------------------------------------------------------------------------
+
 %% @doc When type checking the remote calls there are assertions to see
 %% if the found remote function is exported or not. `export_whitelist'
 %% contains the modules the we can skip this check for.
@@ -276,6 +286,8 @@ export_whitelist() ->
   PrivDir = code:lib_dir(type_checker, priv),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "export_whitelist")),
   gb_sets:from_list(Term).
+
+%%_-----------------------------------------------------------------------------
 
 %% @doc What are the types of Erlang function guards?
 erlang_guard_signature() ->
@@ -293,6 +305,8 @@ erlang_guard_signature() ->
                       throw(E)
                   end
               end, dict:new(), Term).
+
+%%_-----------------------------------------------------------------------------
 
 type_lint(St0) ->
   Forms = state_dl:forms(St0),
@@ -312,6 +326,8 @@ type_lint(St0) ->
   Errs  = lists:usort(Errs0),
   St7   = state_dl:errors(St6, Errs),
   state_dl:warnings(St7, Ws1).
+
+%%_-----------------------------------------------------------------------------
 
 %% Collect forms of interest into state record
 collect_types([{attribute, _, module, Module} | Forms], St0) ->
@@ -377,7 +393,9 @@ merge(D1, D2) ->
                  V1 ++ V2
              end, D1, D2).
 
-%% Check if a refered type is undefined in this module
+%%_-----------------------------------------------------------------------------
+
+%% Check if a referred type is undefined in this module
 check_undefined_types(State=#state{}) ->
   TA  = state_dl:type_aliases(State),
   TU  = state_dl:type_used(State),
@@ -396,6 +414,7 @@ check_undefined_types(State=#state{}) ->
                 end, [], gb_sets:to_list(TU)),
   state_dl:update_errors(State, Erros).
 
+%%_-----------------------------------------------------------------------------
 
 %% Check if user defined types are used
 check_unsued_user_defined_types(State=#state{}) ->
@@ -412,6 +431,7 @@ check_unsued_user_defined_types(State=#state{}) ->
       end
       || {_, {type_alias, L, N, _}} <- dict:to_list(TA)]).
 
+%%_-----------------------------------------------------------------------------
 
 %% Check that the declared funs and corresponding function signature has
 %% the same arity, otherwise, if missing or mismatch, error with proper message.
@@ -453,6 +473,10 @@ match_fun_sig0({fun_sig, L2, N, _} = F, DF) ->
       end
     end.
 
+%%_-----------------------------------------------------------------------------
+
+%% Try to merge record definition with it's associated type definition. As
+%% part of this merging sanity checks are done as well.
 build_record_type_with_declared_record(St=#state{}) ->
   RT = state_dl:record_types(St),
   Rs = state_dl:records(St),
@@ -482,6 +506,8 @@ merge_rec_def_with_type(N, L, RecDef, Ts) ->
       {N, M}
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Adds a new function signature to state record or adds an error if
 %% this function signature is already defined.
 add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{}) ->
@@ -499,6 +525,8 @@ add_fun_sigs({fun_sig, L2, N, _} = F, St=#state{}) ->
     error ->
       state_dl:fun_sigs(St, dict:append(N, F, FS))
   end.
+
+%%_-----------------------------------------------------------------------------
 
 %% Adds a new remote function signature to state record or adds
 %% an error if this function signature is already defined.
@@ -520,6 +548,8 @@ add_remote_fun_sigs({fun_remote_sig, L2, M, N, _} = F, St=#state{}) ->
       state_dl:remote_fun_sigs(St, dict:append(Key, F, FS))
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Adds a new type alias to state record or adds an error if this
 %% type alias is already defined.
 add_type_alias({type_alias, L2, N, _} = F, St=#state{}) ->
@@ -530,6 +560,8 @@ add_type_alias({type_alias, L2, N, _} = F, St=#state{}) ->
     error ->
       state_dl:type_aliases(St, dict:store(N, F, TA))
   end.
+
+%%_-----------------------------------------------------------------------------
 
 %% Adds a new type constructor to state record or adds an error if this
 %% type cons is already defined by another type cons or type alias.
@@ -548,6 +580,8 @@ add_type_cons({type_cons, L2, N, _P, _T} = F, St=#state{}) ->
       end
   end.
 
+%%_-----------------------------------------------------------------------------
+
 add_record_type_def({record_type_def, L, N, _T} = R, St=#state{}) ->
   RT = state_dl:record_types(St),
   case dict:find(N, RT) of
@@ -557,13 +591,19 @@ add_record_type_def({record_type_def, L, N, _T} = R, St=#state{}) ->
       state_dl:record_types(St, dict:store(N, R, RT))
   end.
 
+%%_-----------------------------------------------------------------------------
+
 add_record_def({N, Def}, St=#state{}) ->
   Rs = state_dl:records(St),
   state_dl:records(St, dict:store(N, Def, Rs)).
 
+%%_-----------------------------------------------------------------------------
+
 add_declared_fun({function, _, N, _, _} = F, St=#state{}) ->
   DF = state_dl:declared_fun(St),
   state_dl:declared_fun(St, dict:append(N, F, DF)).
+
+%%_-----------------------------------------------------------------------------
 
 check_consistency_type_cons(State=#state{}) ->
   TC = state_dl:type_cons(State),
@@ -572,12 +612,36 @@ check_consistency_type_cons(State=#state{}) ->
                   no_terl_type_used_lhs(E, St1)
               end, State, dict:to_list(TC)).
 
+%% Check if that all defined generic type parameters in the left hand side of
+%% type constructor is used in the right hand side and vice versa
+check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}
+                                   , State=#state{}) ->
+  GTI0 = lists:flatten([type_internal:extract_generic_types(I) || I <- Is]),
+  GTO0 = type_internal:extract_generic_types(O),
+  GTI1 = lists:usort(GTI0),
+  GTO1 = lists:usort(GTO0),
+  NotUsedRhs = GTI1 -- GTO1,
+  NotUsedLhs = GTO1 -- GTI1,
+  case NotUsedLhs =:= NotUsedRhs of
+    true -> State;
+    false ->
+      Errs = [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}
+       || length(NotUsedLhs) =/= 0] ++
+        [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}
+         || length(NotUsedRhs) =/= 0],
+     state_dl:update_errors(State, Errs)
+  end.
+
+%%_-----------------------------------------------------------------------------
+
 no_remote_fun_sig_declared(St=#state{}) ->
   FSigs  = state_dl:remote_fun_sigs(St),
   Errors = [{L, ?TYPE_MSG, {no_remote_fun_sig_allowed, M, N}} ||
              {_, RFS} <- dict:to_list(FSigs),
              {fun_remote_sig, L, M, N, _} <- RFS],
   state_dl:update_errors(St, Errors).
+
+%%_-----------------------------------------------------------------------------
 
 %% All fun sigs clauses must have same arity
 check_consistency_fun_sigs(State=#state{}) ->
@@ -600,25 +664,7 @@ check_consistency_fun_sig(State=#state{}, {fun_sig, L, N, Cls}) ->
       state_dl:update_errors(State, L, {fun_sig_clause_arity_not_match, N})
   end.
 
-%% Check if that all defined generic type parameters in the left hand side of
-%% type constructor is used in the right hand side and vice versa
-check_consistency_type_cons_lhs_rhs({type_cons, L, _N, Is, O}
-                                   , State=#state{}) ->
-  GTI0 = lists:flatten([type_internal:extract_generic_types(I) || I <- Is]),
-  GTO0 = type_internal:extract_generic_types(O),
-  GTI1 = lists:usort(GTI0),
-  GTO1 = lists:usort(GTO0),
-  NotUsedRhs = GTI1 -- GTO1,
-  NotUsedLhs = GTO1 -- GTI1,
-  case NotUsedLhs =:= NotUsedRhs of
-    true -> State;
-    false ->
-      Errs = [{L, ?TYPE_MSG, {tc_generic_type_not_used_lhs, NotUsedLhs}}
-       || length(NotUsedLhs) =/= 0] ++
-        [{L, ?TYPE_MSG, {tc_generic_type_not_used_rhs, NotUsedRhs}}
-         || length(NotUsedRhs) =/= 0],
-     state_dl:update_errors(State, Errs)
-  end.
+%%_-----------------------------------------------------------------------------
 
 no_terl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
   TI0 = lists:flatten([type_internal:type_terminals(I) || I <- Is]),
@@ -631,6 +677,8 @@ no_terl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
       state_dl:update_errors(State, L, {tc_only_generic_type_lhs, TI2})
   end.
 
+%%_-----------------------------------------------------------------------------
+
 fun_arity({fun_sig, _, _, [{fun_type, I, _} | _]}) ->
   length(I);
 fun_arity({fun_remote_sig, _, _, _, [{fun_type, I, _} | _]}) ->
@@ -641,7 +689,7 @@ fun_arity([{fun_type, I, _} | _]) ->
   length(I).
 
 
-%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%% Type check, the heart of the system %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 type_check0(S0=#state{}) ->
   Opts   = state_dl:compiler_opts(S0),
@@ -689,6 +737,7 @@ type_check1([{function, L, N, A, Cls} | Forms], State) ->
 type_check1([_ | Fs], State) ->
   type_check1(Fs, State).
 
+%%_-----------------------------------------------------------------------------
 
 %% Returns [{clause, fun_type}]
 match_clauses_with_sig(N, A, Cls, State) ->
@@ -712,6 +761,8 @@ assert_and_fix_size_inequality(Cls, {fun_sig, L, Name, Sigs} = FSs, State) ->
       {FSs, State1}
   end.
 
+%%_-----------------------------------------------------------------------------
+
 match_clauses_with_ftype(Cls, L, State=#state{}) ->
   LS = state_dl:local(State),
   State1 = state_dl:local(State, state_dl:last_ftype(LS, undefined)),
@@ -724,6 +775,8 @@ match_clauses_with_ftype(Cls, L, State=#state{}) ->
       match_clauses_with_sig0(Cls, {fun_sig, L, noname, [FSs1]}, [], State1)
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Returns [{clause, fun_Type}]
 match_clauses_with_sig0([], _, Res, State) ->
   {Res, State};
@@ -732,6 +785,8 @@ match_clauses_with_sig0([{clause, _, CArg, _, _} = C | Cls],
   BestMatch = find_the_best_match(CArg, Sigs),
   match_clauses_with_sig0(Cls, {fun_sig, L, N, Sigs -- [BestMatch]},
                           Res ++ [{C, BestMatch}], State).
+
+%%_-----------------------------------------------------------------------------
 
 %% Tries to find the best match by scoring on how many arguments
 %% have the same type and returns the highest score and corresponding FType.
@@ -791,6 +846,7 @@ arg_match(T, T) ->
 arg_match(_, _) ->
   0.
 
+%%_-----------------------------------------------------------------------------
 
 %% InferredTypeFSigList :: [{L, InferredType, FunSig}]
 infer_function_type(NA, InferredTypeFSigList, State) ->
@@ -813,6 +869,8 @@ infer_function_clause(NAL, Inferred, Declared, S=#state{}) ->
       {Inferred, state_dl:update_errors(S, [Err])}
   end.
 
+%%_-----------------------------------------------------------------------------
+
 validate_fun_type(NAL, FTypes, State) ->
   lists:foldl(fun(FT, S0) ->
                   validate_fun_type0(NAL, FT, S0)
@@ -827,6 +885,8 @@ validate_fun_type0(NAL, FType, S=#state{}) ->
       Err = {L, ?TYPE_MSG, {can_not_infer_fun_type, N, A, FType}},
       state_dl:update_errors(S, [Err])
   end.
+
+%%_-----------------------------------------------------------------------------
 
 type_check_clause(FSig, Cls, S=#state{}) ->
   FP = state_dl:first_pass(S),
@@ -847,21 +907,6 @@ type_check_clause(FSig, Cls, S=#state{}) ->
           {Res, S2}
       end
   end.
-
-%% Update the number of undefined types in local scope
-%% to save cost of calculation to one time so later passes
-%% won't calculate this if it's already 0.
-update_undefined(S0=#state{}) ->
-  L = state_dl:local(S0),
-  InnerScopes =
-    [state_dl:find_ls(In, S0) ||
-      In <- gb_sets:to_list(state_dl:inner_scopes(L))],
-  UnDefsInnerScopes =
-    lists:sum([count_undefined_local_scope(IS) || IS <- InnerScopes]),
-  UnDefs1 = count_undefined_local_scope(L),
-  Errors = length(state_dl:errors(S0)),
-  state_dl:update_undefined_types_in_local(UnDefs1 + UnDefsInnerScopes + Errors,
-                                           S0).
 
 type_check_clause0(undefined, {clause, _L, Args, G, _E} = Cl, State0) ->
   State1  = type_check_clause_guard(G, State0),
@@ -887,11 +932,32 @@ type_check_clause0({fun_type, Is, _},
                         end, State2, VarTypes),
   type_check_clause1(Cl, State3).
 
+%%_-----------------------------------------------------------------------------
+
+%% Update the number of undefined types in local scope
+%% to save cost of calculation to one time so later passes
+%% won't calculate this if it's already 0.
+update_undefined(S0=#state{}) ->
+  L = state_dl:local(S0),
+  InnerScopes =
+    [state_dl:find_ls(In, S0) ||
+      In <- gb_sets:to_list(state_dl:inner_scopes(L))],
+  UnDefsInnerScopes =
+    lists:sum([count_undefined_local_scope(IS) || IS <- InnerScopes]),
+  UnDefs1 = count_undefined_local_scope(L),
+  Errors = length(state_dl:errors(S0)),
+  state_dl:update_undefined_types_in_local(UnDefs1 + UnDefsInnerScopes + Errors,
+                                           S0).
+
+%%_-----------------------------------------------------------------------------
+
 arg_type_elimination(Args, State0) ->
   VarTypes = lists:foldl(fun(Arg, Acc) ->
                              record_type_elimination(Arg, State0) ++ Acc
                          end, [], Args),
   update_local(State0, VarTypes).
+
+%%_-----------------------------------------------------------------------------
 
 record_type_elimination({match, _, {record, _, N, _} = R, T}, State) ->
   type_internal:eliminate(R, T, State) ++
@@ -904,6 +970,8 @@ record_type_elimination({record, _, N, _} = R, State) ->
 record_type_elimination(_, _) ->
   [].
 
+%%_-----------------------------------------------------------------------------
+
 type_check_clause_guard(Gs, State0=#state{}) ->
   State1 = state_dl:fun_lookup(State0, guard_fun_lookup_priorities()),
   GSeqs  = [G1 || G0 <- Gs, G1 <- G0],
@@ -912,6 +980,8 @@ type_check_clause_guard(Gs, State0=#state{}) ->
                        assert_guard_type(G, TG, S1)
                    end, State1, GSeqs),
   state_dl:fun_lookup(State2, nil).
+
+%%_-----------------------------------------------------------------------------
 
 %% function clause
 type_check_clause1({clause, _L, Args, _G, Exprs}, State0) ->
@@ -926,6 +996,7 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, State0) ->
   State2 = state_dl:update_type_in_local_scope(ClauseType, State1),
   {ClauseType, check_local_scope(State2)}.
 
+%%_-----------------------------------------------------------------------------
 
 type_check_expr({match, L, {record, _, N, _} = R, RHS}, State0) ->
   {TRHS, State1} = type_of(RHS, State0),
@@ -963,15 +1034,21 @@ type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, State0) ->
 type_check_expr(E, State0) ->
   type_of(E, State0).
 
+%%_-----------------------------------------------------------------------------
+
 reset_last_ftype(State=#state{}) ->
   LS = state_dl:local(State),
   state_dl:local(State, state_dl:last_ftype(LS, undefined)).
+
+%%_-----------------------------------------------------------------------------
 
 type_of_lhs({bin, _, _} = Bin, State0) ->
   {_, State1} = type_of(Bin, State0),
   State1;
 type_of_lhs(_, State) ->
   State.
+
+%%_-----------------------------------------------------------------------------
 
 check_for_fun_type(Type, State=#state{}) ->
   L = state_dl:local(State),
@@ -985,6 +1062,8 @@ check_for_fun_type(Type, State=#state{}) ->
     _ ->
       state_dl:local(State, state_dl:last_ftype(L, undefined))
   end.
+
+%%_-----------------------------------------------------------------------------
 
 %% Insert argument types into local scope
 insert_args({var, _, '_'}, _, S) ->
@@ -1004,6 +1083,8 @@ insert_args0(Var, L, Type, S=#state{}) ->
   NLS     = dict:store(Var, MetaVar, state_dl:vars(LS)),
   state_dl:local(S, state_dl:vars(LS, NLS)).
 
+%%_-----------------------------------------------------------------------------
+
 %% Generate type error for undefined types in local scope
 check_local_scope(S=#state{}) ->
   LS     = state_dl:local(S),
@@ -1013,6 +1094,7 @@ check_local_scope(S=#state{}) ->
                  <- dict:to_list(Vars), T =:= undefined],
   state_dl:update_errors(S, Undefs).
 
+%%_-----------------------------------------------------------------------------
 
 type_of({nil, _}, S) ->
   {{list_type, nothing}, S};
@@ -1367,6 +1449,8 @@ type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
   {undefined, State}.
 
+%%_-----------------------------------------------------------------------------
+
 infer_arg_type_from_call(Args, TypedArgs, FType, State0) ->
   lists:foldl(fun({{var, _, _} = A, undefined, T}, St0) ->
                   {_, St1} = update_local(St0, A, T),
@@ -1375,6 +1459,10 @@ infer_arg_type_from_call(Args, TypedArgs, FType, State0) ->
                   St0
               end, State0, lists:zip3(Args, TypedArgs, FType)).
 
+%%_-----------------------------------------------------------------------------
+
+%% For any adjacent types T1 and T2 in two argument lists, convert T1 to T2
+%% if T1 is [] and T2 is [A].
 reduce_fun_sigs([_] = FTypes) ->
   FTypes;
 reduce_fun_sigs(FTypes) ->
@@ -1412,6 +1500,8 @@ reduce_fun_sigs({fun_type, I1, O1}, {fun_type, I2, O2}) ->
   {II1, II2} = lists:unzip(Mapped),
   [ {fun_type, II1, O1}, {fun_type, II2, O2} ].
 
+%%_-----------------------------------------------------------------------------
+
 materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
   lists:foldl(
     fun(FType, {St, Acc, Generic}) ->
@@ -1444,6 +1534,7 @@ materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
         end
     end, {State, [], false}, FTypes).
 
+%%_-----------------------------------------------------------------------------
 
 type_check_record_field(N, TN
                        , {record_field, L, {atom, _, F}, V}, State0) ->
@@ -1453,10 +1544,14 @@ type_check_record_field(N, TN
   State3       = assert_record_field_type_equality(N, L, F, TF, TV, State2),
   {TF, State3}.
 
+%%_-----------------------------------------------------------------------------
+
 update_field_type(N, F, L, T, State) ->
   Name        = io_lib:format("#~p.~p", [N, F]),
   {_, State1} = update_local(State, Name, L, T),
   State1.
+
+%%_-----------------------------------------------------------------------------
 
 eliminate_based_on_clauses(E, Cls, State0) ->
   VTsDict = lists:foldl(fun({clause, _, Es, _, _}, VTDict) ->
@@ -1471,6 +1566,8 @@ eliminate_based_on_clauses(E, Cls, State0) ->
                   update_local(S0, [{K, T}])
               end, State0, dict:to_list(VTsDict)).
 
+%%_-----------------------------------------------------------------------------
+
 type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
 
@@ -1483,6 +1580,8 @@ type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
 
   State3 = state_dl:update_type_in_local_scope(TLastCl, State2),
   {TLastCl, check_local_scope(State3)}.
+
+%%_-----------------------------------------------------------------------------
 
 type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
@@ -1501,13 +1600,19 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
   State5 = state_dl:update_type_in_local_scope(TLastCl, State4),
   {TLastCl, check_local_scope(State5)}.
 
+%%_-----------------------------------------------------------------------------
+
 find_lub(TCls) ->
   lists:foldl(fun(T1, T2) ->
                   type_internal:lub(T1, T2)
               end, nothing, TCls).
 
+%%_-----------------------------------------------------------------------------
+
 create_clause_name(Prefix, Ind, L, Es, Gs, Cls) ->
     {Prefix, L, length(Es), length(Gs), length(Cls), Ind}.
+
+%%_-----------------------------------------------------------------------------
 
 generate_error_for_call(M, N, Arity, L, NonMatchedArgList) ->
   {Res, _} =
@@ -1525,6 +1630,8 @@ generate_error_for_call(M, N, Arity, L, NonMatchedArgList) ->
       end, {[], 1}, NonMatchedArgList),
   Res.
 
+%%_-----------------------------------------------------------------------------
+
 %% Tries to find the exact match between TypedArgs and FType and returns
 %% {Boolean, Result, FType} indicating if it was an exact match.
 find_exact_match(_, undefined) ->
@@ -1536,6 +1643,8 @@ find_exact_match(TypedArgs, {fun_type, Is, _} = FType) ->
               end, lists:zip(TypedArgs, Is)),
 
   {lists:all(fun({E, _, _}) -> E =:= true end, Res), Res, FType}.
+
+%%_-----------------------------------------------------------------------------
 
 dispatch(TL, Op, TR) ->
   dispatch_result(type_internal:dispatch(TL, Op, TR)).
@@ -1557,6 +1666,7 @@ dispatch_result(Res) ->
       T
   end.
 
+%%_-----------------------------------------------------------------------------
 
 %% Starting from the most inner local scope, tries to find the type
 %% for a variable recusively to outer scopes until it finds a type.
@@ -1578,12 +1688,12 @@ recursive_lookup(Var, S=#state{}, LocalS=#local_scope{}) ->
       end
   end.
 
+%%_-----------------------------------------------------------------------------
+
 recursive_ls_lookup(Var, LS, Locals) ->
   case recursive_ls_lookup0(Var, LS, Locals) of
-    nil ->
-      LS;
-    Other ->
-      Other
+    nil   -> LS;
+    Other -> Other
   end.
 
 recursive_ls_lookup0(Var, LS=#local_scope{}, Locals) ->
@@ -1607,6 +1717,8 @@ recursive_ls_lookup0(Var, LS=#local_scope{}, Locals) ->
       end
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Only look in current local scope
 non_recursive_lookup(Var, State=#state{}) ->
   LS   = state_dl:local(State),
@@ -1615,6 +1727,8 @@ non_recursive_lookup(Var, State=#state{}) ->
     {ok, #meta_var{type = T}} -> T;
     error -> undefined
   end.
+
+%%_-----------------------------------------------------------------------------
 
 unwrap_list({list_type, T}, _) ->
   T;
@@ -1625,6 +1739,7 @@ unwrap_list(undefined, _) ->
 unwrap_list(T, L) ->
   throw({error, L, {not_list_cons_position, T}}).
 
+%%_-----------------------------------------------------------------------------
 
 %% Tries to infer the type for a variable based on operator application.
 infer_from_op(Res, {var, _, _} = Var, undefined, State) ->
@@ -1633,6 +1748,8 @@ infer_from_op(Res, {var, _, _} = Var, {union_type, _}, State) ->
   update_local(State, Var, Res);
 infer_from_op(_, _, Type, State) ->
   {Type, State}.
+
+%%_-----------------------------------------------------------------------------
 
 assert_found_vt(L, S=#state{}, VTs) ->
   Errs =
@@ -1646,6 +1763,8 @@ assert_found_vt(L, S=#state{}, VTs) ->
                     end
                 end, [], VTs),
   state_dl:update_errors(S, Errs).
+
+%%_-----------------------------------------------------------------------------
 
 assert_found_remote_fun_type(undefined, L, M, N, Ar, S=#state{}) ->
   state_dl:update_errors(S,
@@ -1672,10 +1791,14 @@ assert_export_function(M, N, Ar, L, S=#state{}) ->
       end
   end.
 
+%%_-----------------------------------------------------------------------------
+
 assert_found_fun_type(undefined, L, NN, Ar, S=#state{}) ->
   state_dl:update_errors(S, [{L, ?TYPE_MSG, {can_not_infer_type_fun, NN, Ar}}]);
 assert_found_fun_type(_, _, _, _, S) ->
   S.
+
+%%_-----------------------------------------------------------------------------
 
 assert_binary_type(Expr, T, L, State0) ->
   case T of
@@ -1685,6 +1808,8 @@ assert_binary_type(Expr, T, L, State0) ->
       state_dl:update_errors(State0, L, {expected_binary_type, Expr, TWrong})
   end.
 
+%%_-----------------------------------------------------------------------------
+
 assert_found_record_type(N, T, L, State=#state{}) ->
   case T of
     undefined ->
@@ -1692,6 +1817,8 @@ assert_found_record_type(N, T, L, State=#state{}) ->
     _ ->
       State
   end.
+
+%%_-----------------------------------------------------------------------------
 
 assert_record_field_type_equality(N, L, F, TF, TV, State0=#state{}) ->
   case type_internal:type_equivalent(TF, TV) of
@@ -1703,6 +1830,8 @@ assert_record_field_type_equality(N, L, F, TF, TV, State0=#state{}) ->
                              {wrong_record_field_type, N, F, TF, TV})
   end.
 
+%%_-----------------------------------------------------------------------------
+
 assert_guard_type(G, T, State=#state{}) ->
   case T of
     {terl_type, 'Boolean'} ->
@@ -1712,6 +1841,8 @@ assert_guard_type(G, T, State=#state{}) ->
                              element(2, G),
                              {wrong_guard_type, G, WrongType})
   end.
+
+%%_-----------------------------------------------------------------------------
 
 assert_list_validity(TH, TT) ->
   case {TH, TT} of
@@ -1723,6 +1854,8 @@ assert_list_validity(TH, TT) ->
       {list_type, type_internal:lub(T1, T2)}
   end.
 
+%%_-----------------------------------------------------------------------------
+
 assert_tuple_validity(TES, _L) ->
   Undefined = lists:filter(fun(T) ->
                    T =:= undefined
@@ -1732,6 +1865,7 @@ assert_tuple_validity(TES, _L) ->
     _ -> undefined
   end.
 
+%%_-----------------------------------------------------------------------------
 
 assert_type_equality(Var, L, Declared, Inferred, S=#state{}) ->
   case Inferred of
@@ -1746,6 +1880,8 @@ assert_type_equality(Var, L, Declared, Inferred, S=#state{}) ->
                                  , Var, Declared, Inferred})
       end
   end.
+
+%%_-----------------------------------------------------------------------------
 
 assert_operator_validity(Res, Op, TL, TR, L, State=#state{}) ->
   InvalidOp = type_internal:invalid_operator(),
@@ -1767,6 +1903,8 @@ assert_operator_validity(Res, Op, TR, L, State=#state{}) ->
       {R, State}
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% This is to avoid same variables errored multiple places
 type_defined_in_local(Var, S=#state{}) ->
   LS = state_dl:local(S),
@@ -1775,12 +1913,16 @@ type_defined_in_local(Var, S=#state{}) ->
     _         -> true
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Only returns Scope
 update_local(S0, VarTypes) ->
   lists:foldl(fun({K, T}, Acc) ->
                   {_, S1} = update_local(Acc, K, T),
                   S1
              end, S0, VarTypes).
+
+%%_-----------------------------------------------------------------------------
 
 assert_and_update_type(V, L, NewType, Dict) ->
   OldType = case dict:find(V, Dict) of
@@ -1801,6 +1943,8 @@ assert_and_update_type(V, L, NewType, Dict) ->
           {[{L, ?TYPE_MSG, {inferred_conflicting_types, V, T1, T2}}], Dict}
       end
   end.
+
+%%_-----------------------------------------------------------------------------
 
 %% Returns {Type, State}
 update_local(S=#state{}, {var, L, V}, Type) ->
@@ -1849,6 +1993,7 @@ update_local(S=#state{}, Name, L, Type) ->
       {Type, S1}
   end.
 
+%%_-----------------------------------------------------------------------------
 
 update_global(S=#state{}, N, Ar, FTypes) ->
   GS        = state_dl:global(S),
@@ -1858,6 +2003,8 @@ update_global(S=#state{}, N, Ar, FTypes) ->
                  error -> []
                end,
   state_dl:global(S, dict:store(N, FsExceptN ++ [FTypes], GS)).
+
+%%_-----------------------------------------------------------------------------
 
 find_fun_type_in_global([N, Ar, State=#state{}]) ->
   GS = state_dl:global(State),
@@ -1871,6 +2018,8 @@ find_fun_type_in_global0(N, Ar, GS) ->
     error -> []
   end.
 
+%%_-----------------------------------------------------------------------------
+
 find_fun_type_in_remote([M, N, Ar, State=#state{}]) ->
   case state_dl:module_scope(M, State) of
     nil -> [];
@@ -1878,6 +2027,8 @@ find_fun_type_in_remote([M, N, Ar, State=#state{}]) ->
       GS = state_dl:global(MS),
       find_fun_type_in_global0(N, Ar, GS)
   end.
+
+%%_-----------------------------------------------------------------------------
 
 find_fun_type_in_local([N, Ar, State=#state{}]) ->
   LS = state_dl:local(State),
@@ -1891,6 +2042,8 @@ find_fun_type_in_local([N, Ar, State=#state{}]) ->
     error -> []
   end.
 
+%%_-----------------------------------------------------------------------------
+
 %% Returns {fun_sig, L, N, T} | undefined
 find_fun_sig([N, A, State=#state{}]) ->
   case dict:find(N, state_dl:fun_sigs(State)) of
@@ -1900,6 +2053,8 @@ find_fun_sig([N, A, State=#state{}]) ->
     error -> undefined
   end.
 
+%%_-----------------------------------------------------------------------------
+
 find_fun_type_in_guards([N, A, State=#state{}]) ->
   case dict:find(N, state_dl:guard_types(State)) of
     {ok, Vs} ->
@@ -1908,10 +2063,14 @@ find_fun_type_in_guards([N, A, State=#state{}]) ->
     error -> undefined
   end.
 
+%%_-----------------------------------------------------------------------------
+
 standard_remote_fun_lookup_priorities() ->
   [ fun find_fun_type_in_erlang_types/1
   , fun find_fun_type_in_remote/1
   ].
+
+%%_-----------------------------------------------------------------------------
 
 standard_fun_lookup_priorities() ->
   [ fun find_local_fun_type_in_erlang_types/1
@@ -1920,8 +2079,12 @@ standard_fun_lookup_priorities() ->
   , fun find_fun_sig/1
   ].
 
+%%_-----------------------------------------------------------------------------
+
 guard_fun_lookup_priorities() ->
   [ fun find_fun_type_in_guards/1 ].
+
+%%_-----------------------------------------------------------------------------
 
 %% First checks to see if there exits a type definition in erlang types
 %% then in global scope and finally in function signature
@@ -1942,8 +2105,12 @@ find_fun_type0([F | T], Args) ->
       Other
   end.
 
+%%_-----------------------------------------------------------------------------
+
 find_local_fun_type_in_erlang_types([N, Ar, State]) ->
   find_fun_type_in_erlang_types([nil, N, Ar, State]).
+
+%%_-----------------------------------------------------------------------------
 
 find_fun_type_in_erlang_types([M, N, Ar, State=#state{}]) ->
   Key = case M of
@@ -1957,6 +2124,8 @@ find_fun_type_in_erlang_types([M, N, Ar, State=#state{}]) ->
         lists:filter(fun(Fs) -> fun_arity(hd(Fs)) =:= Ar end, FList));
     error -> []
   end.
+
+%%_-----------------------------------------------------------------------------
 
 debug_log(S=#state{}, Format, Args) ->
   Opts = state_dl:compiler_opts(S),

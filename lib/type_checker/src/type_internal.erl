@@ -71,7 +71,7 @@ module_of(W) ->
   io:format("Module_of is not defined for ~p~n", [W]),
   ?MODULE.
 
-
+%%_-----------------------------------------------------------------------------
 
 %% Binary operator dispatcher to respective types
 dispatch(undefined, _, undefined) ->
@@ -98,6 +98,7 @@ dispatch(Op, {union_type, Ts}) ->
 dispatch(Op, T) ->
   apply(module_of(T), op, [Op]).
 
+%%_-----------------------------------------------------------------------------
 
 op(Op) ->
   io:format("No dispatcher defined for Operator ~p~n", [Op]),
@@ -107,6 +108,8 @@ op(Op, T2) ->
   io:format("No dispatcher defined for Operator "
             ++ "~p and Type ~p~n", [Op, T2]),
   undefined.
+
+%%_-----------------------------------------------------------------------------
 
 lub(T) ->
   io:format("No lub defined to ~p~n", [T]),
@@ -148,17 +151,13 @@ lub(T1, T2) ->
   M = module_of(T1),
   apply(M, lub, [T2]).
 
+%%_-----------------------------------------------------------------------------
+
 type_tag(Type) ->
   case built_in(Type) of
     true -> {terl_type, Type};
     false -> {terl_generic_type, Type}
   end.
-
-invalid_operator() ->
-  invalid_operator.
-
-tag_built_in(Type) ->
-  {terl_type, Type}.
 
 built_in('Any')         -> true;
 built_in('Atom')        -> true;
@@ -176,6 +175,17 @@ built_in('Port')        -> true;
 
 built_in(_)             -> false.
 
+%%_-----------------------------------------------------------------------------
+
+invalid_operator() ->
+  invalid_operator.
+
+%%_-----------------------------------------------------------------------------
+
+tag_built_in(Type) ->
+  {terl_type, Type}.
+
+%%_-----------------------------------------------------------------------------
 
 %% Check if given two types are equivalent
 type_equivalent({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
@@ -229,6 +239,7 @@ type_equivalent(T, T) ->
 type_equivalent(_, _) ->
   false.
 
+%%_-----------------------------------------------------------------------------
 
 sub_type_of(undefined, undefined) ->
   false;
@@ -284,6 +295,8 @@ sub_type_of(T, T) ->
 sub_type_of(_, _) ->
   false.
 
+%%_-----------------------------------------------------------------------------
+
 %% Tries to pattern match LHS and RHS and infer type
 %% for variables in LHS from RHS. For sake of error handling
 %% we need to eliminate to all posssible terminals in LHS.
@@ -322,6 +335,7 @@ eliminate_record_type({record, _, N, Ts}, State0=#state{}) ->
                   Acc ++ eliminate(V, TF, State0)
               end, [], Ts).
 
+%%_-----------------------------------------------------------------------------
 
 generic_materialisation(Generic, T) ->
   Res = {_FT, _Maps, _Errs} = gm(Generic, T, dict:new(), []),
@@ -429,11 +443,14 @@ generic_to_undefined(Type) ->
         end,
   type_map(Type, Map).
 
+%%_-----------------------------------------------------------------------------
+
 ulist({list_type, T}) ->
   T;
 ulist(_) ->
   undefined.
 
+%%_-----------------------------------------------------------------------------
 
 var_terminals(Expr) ->
   var_terminals(Expr, []).
@@ -455,6 +472,8 @@ var_terminals({tuple, _L, Es}, Rs0) ->
   lists:flatten([var_terminals(E, []) || E <- Es]) ++ Rs0;
 var_terminals(_, W) ->
   W.
+
+%%_-----------------------------------------------------------------------------
 
 type_mapfold({fun_sig, L, N, Ts}, FoldF, Acc) ->
   {NTs, Acc1} = type_mapfold_helper(Ts, FoldF, Acc),
@@ -493,6 +512,8 @@ type_mapfold_helper(Ts, FoldF, Acc) ->
                   {TT ++ [NT], Ac1}
               end, {[], Acc}, Ts).
 
+%%_-----------------------------------------------------------------------------
+
 type_map({fun_sig, L, N, Ts}, FMap) ->
   {fun_sig, L, N, [type_map(T, FMap) || T <- Ts]};
 type_map({fun_remote_sig, L, M, N, Ts}, FMap) ->
@@ -514,14 +535,19 @@ type_map({type_instance, N, Ts}, FMap) ->
 type_map(T, FMap) ->
   FMap(T).
 
+%%_-----------------------------------------------------------------------------
 
 extract_user_defined_types(Ts) when is_list(Ts) ->
   lists:flatten([extract_user_defined_types(T) || T <- Ts]);
 extract_user_defined_types(T) ->
   extract_type_terminals(terl_user_defined, T).
 
+%%_-----------------------------------------------------------------------------
+
 extract_generic_types(T) ->
   extract_type_terminals(terl_generic_type, T).
+
+%%_-----------------------------------------------------------------------------
 
 %% Tags can be one of the following:
 %% - terl_type
@@ -529,15 +555,14 @@ extract_generic_types(T) ->
 %% - terl_type_ref
 %% - terl_user_defined
 extract_type_terminals(Tag, T) ->
-  lists:foldl(fun(Tp, Acc) ->
-                  case Tp of
-                    {Tag, Type} ->
-                      [Type | Acc];
-                    Tag ->
-                      [Tag | Acc];
-                    _ -> Acc
-                  end
-              end, [], type_terminals(T)).
+  lists:foldl(
+    fun(Tp, Acc) ->
+        case Tp of
+          {Tag, Type} -> [Type | Acc];
+          Tag         -> [Tag | Acc];
+          _           -> Acc
+        end
+    end, [], type_terminals(T)).
 
 type_terminals({fun_type, Is, O}) ->
   lists:flatten([type_terminals(I) || I <- Is])
@@ -575,6 +600,8 @@ type_terminals(undefined) ->
 type_terminals(W) ->
   throw({fatal_error, not_recognized, W}).
 
+%%_-----------------------------------------------------------------------------
+
 find_record_type(N, State=#state{}) ->
   RT = state_dl:record_types(State),
   case dict:find(N, RT) of
@@ -587,6 +614,7 @@ find_record_field_type(_, undefined) ->
 find_record_field_type(F, T) ->
   proplists:get_value(F, T).
 
+%%_-----------------------------------------------------------------------------
 
 
 
