@@ -49,6 +49,7 @@
 
 -include("type_checker_state.hrl").
 -include("../compiler/include/terl_compiler.hrl").
+-include("type_macros.hrl").
 
 %%------------------------------------------------------------------------------
 %%  MACROS
@@ -862,11 +863,17 @@ infer_function_clause(NAL, Inferred, Declared, S=#state{}) ->
   case type_internal:sub_type_of(Declared, Inferred) of
     true -> {Declared, S};
     false ->
-      {N, A, L} = NAL,
-      Err =
-        {L, ?TYPE_MSG,
-         {declared_inferred_fun_type_do_not_match, N, A, Declared, Inferred}},
-      {Inferred, state_dl:update_errors(S, [Err])}
+      case length(type_internal:extract_type_terminals(undefined, Declared)) of
+        0 ->
+          {N, A, L} = NAL,
+          Err =
+            {L, ?TYPE_MSG,
+             {declared_inferred_fun_type_do_not_match
+             , N, A, Declared, Inferred}},
+          {Inferred, state_dl:update_errors(S, [Err])};
+        _ ->
+          {Inferred, S}
+      end
   end.
 
 %%_-----------------------------------------------------------------------------
@@ -1516,7 +1523,7 @@ materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
-                NErrs =
+               NErrs =
                   lists:map(
                     fun({can_not_instantiate_generic_type, T, V}) ->
                         {can_not_instantiate_generic_type, T, V, FType, Call};
@@ -1657,10 +1664,8 @@ dispatch_result(Res) ->
     Ls when is_list(Ls) ->
       Ts = lists:usort(Ls),
       case length(Ts) of
-        1 ->
-          hd(Ts);
-        _ ->
-          undefined
+        1 -> hd(Ts);
+        _ -> undefined
       end;
     T ->
       T
@@ -1742,6 +1747,8 @@ unwrap_list(T, L) ->
 %%_-----------------------------------------------------------------------------
 
 %% Tries to infer the type for a variable based on operator application.
+infer_from_op(?BOOLEAN, _, Type, State) ->
+  {Type, State};
 infer_from_op(Res, {var, _, _} = Var, undefined, State) ->
   update_local(State, Var, Res);
 infer_from_op(Res, {var, _, _} = Var, {union_type, _}, State) ->

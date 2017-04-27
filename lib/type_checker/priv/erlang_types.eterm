@@ -54,6 +54,7 @@
 , "lists:foldl :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
 , "lists:foldr :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
 , "lists:all :: ((A -> Boolean), [A]) -> Boolean."
+, "lists:dropwhile :: ((A -> Boolean), [A]) -> [A]."
 
 , "string:chars :: (Char, Integer) -> String."
 ].

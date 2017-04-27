@@ -371,6 +371,7 @@ gm({fun_type, Is, O}, TypedArgs, Mappings, Errs) ->
         case dict:find(T, NMappings) of
           {ok, Set} ->
             case gb_sets:to_list(Set) of
+              [] -> {undefined, Acc};
               [V] -> {V, Acc};
               [_|_] = Vs ->
                 {GT, Acc ++ [{can_not_instantiate_generic_type, T, Vs}]}
@@ -429,12 +430,13 @@ reduce_list_types({list_type, nothing} = T, OldSet) ->
     _     -> OldSet
   end;
 reduce_list_types({list_type, _} = T, OldSet) ->
+  Res = 
   case gb_sets:is_member({list_type, nothing}, OldSet) of
-    true ->
-      gb_sets:add(T, gb_sets:delete({list_type, nothing}, OldSet));
-    false ->
-      gb_sets:add(T, OldSet)
-  end.
+    true  -> gb_sets:add(T, gb_sets:delete({list_type, nothing}, OldSet));
+    false -> gb_sets:add(T, OldSet)
+  end,
+  io:format("Set: ~p~n", [gb_sets:to_list(Res)]),
+  Res.
 
 generic_to_undefined(Type) ->
   Map = fun({terl_generic_type, _}) ->
