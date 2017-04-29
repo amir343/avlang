@@ -31,7 +31,7 @@
         , op/1
         , op/2
         , sub_type_of/2
-        , tag_built_in/1
+        , type_alias/1
         , type_equivalent/2
         , type_map/2
         , type_mapfold/3
@@ -47,19 +47,19 @@
 
 %%------------------------------------------------------------------------------
 
-module_of({terl_type, 'Integer'}) ->
+module_of(?INTEGER) ->
   ?INTEGER_MOD;
-module_of({terl_type, 'Char'}) ->
+module_of(?CHAR) ->
   ?CHAR_MOD;
-module_of({terl_type, 'Float'}) ->
+module_of(?FLOAT) ->
   ?FLOAT_MOD;
-module_of({terl_type, 'String'}) ->
+module_of(?STRING) ->
   ?STRING_MOD;
-module_of({terl_type, 'Any'}) ->
+module_of(?ANY) ->
   ?ANY_MOD;
-module_of({terl_type, 'Boolean'}) ->
+module_of(?BOOLEAN) ->
   ?BOOLEAN_MOD;
-module_of({terl_type, 'Pid'}) ->
+module_of(?PID) ->
   ?PID_MOD;
 module_of({union_type, _}) ->
   ?UNION_MOD;
@@ -129,24 +129,24 @@ lub(_, undefined) ->
   undefined;
 lub({union_type, _} = T1, {union_type, _} = T2) ->
   case type_equivalent(T1, T2) of
-    true -> T1;
-    false -> {terl_type, 'Any'}
+    true  -> T1;
+    false -> ?ANY
   end;
 lub({union_type, _}, _) ->
-  {terl_type, 'Any'};
+  ?ANY;
 lub({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
   case type_equivalent(T1, T2) of
-    true -> T1;
-    false -> {terl_type, 'Any'}
+    true  -> T1;
+    false -> ?ANY
   end;
 lub({fun_type, _, _}, _) ->
-  {terl_type, 'Any'};
+  ?ANY;
 lub({terl_atom_type, _}, {terl_atom_type, _}) ->
-  {terl_type, 'Atom'};
-lub({terl_type, 'Atom'}, {terl_atom_type, _}) ->
-  {terl_type, 'Atom'};
-lub({terl_atom_type, _}, {terl_type, 'Atom'}) ->
-  {terl_type, 'Atom'};
+  ?ATOM;
+lub(?ATOM, {terl_atom_type, _}) ->
+  ?ATOM;
+lub({terl_atom_type, _}, ?ATOM) ->
+  ?ATOM;
 lub(T1, T2) ->
   M = module_of(T1),
   apply(M, lub, [T2]).
@@ -155,7 +155,7 @@ lub(T1, T2) ->
 
 type_tag(Type) ->
   case built_in(Type) of
-    true -> {terl_type, Type};
+    true  -> {terl_type, Type};
     false -> {terl_generic_type, Type}
   end.
 
@@ -179,11 +179,6 @@ built_in(_)             -> false.
 
 invalid_operator() ->
   invalid_operator.
-
-%%_-----------------------------------------------------------------------------
-
-tag_built_in(Type) ->
-  {terl_type, Type}.
 
 %%_-----------------------------------------------------------------------------
 
@@ -213,13 +208,17 @@ type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
     lists:all(fun(E) -> E =:= true end,
               [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
-type_equivalent({terl_atom_type, _}, {terl_type, 'Atom'}) ->
+type_equivalent({terl_atom_type, _}, ?ATOM) ->
   true;
-type_equivalent({terl_type, 'Atom'}, {terl_atom_type, _}) ->
+type_equivalent(?ATOM, {terl_atom_type, _}) ->
   true;
-type_equivalent({terl_type, 'Any'}, _) ->
+type_equivalent(?ANY, _) ->
   true;
-type_equivalent(_, {terl_type, 'Any'}) ->
+type_equivalent(_, ?ANY) ->
+  true;
+type_equivalent(?STRING, {list_type, ?CHAR}) ->
+  true;
+type_equivalent({list_type, ?CHAR}, ?STRING) ->
   true;
 type_equivalent([T1], T2) ->
   type_equivalent(T1, T2);
@@ -278,22 +277,22 @@ sub_type_of({tuple_type, _} = TT1, {tuple_type, _} = TT2) ->
   type_equivalent(TT1, TT2);
 sub_type_of({list_type, T1}, {list_type, T2}) ->
   sub_type_of(T1, T2);
-sub_type_of(_, {terl_type, 'Term'}) ->
+sub_type_of(_, ?TERM) ->
   true;
-sub_type_of(_, {terl_type, 'Any'}) ->
+sub_type_of(_, ?ANY) ->
   true;
 sub_type_of(_, {terl_generic_type, _}) ->
   true;
-sub_type_of({terl_atom_type, _}, {terl_type, 'Atom'}) ->
+sub_type_of({terl_atom_type, _}, ?ATOM) ->
   true;
-sub_type_of({terl_atom_type, true}, {terl_type, 'Boolean'}) ->
+sub_type_of({terl_atom_type, true}, ?BOOLEAN) ->
   true;
-sub_type_of({terl_atom_type, false}, {terl_type, 'Boolean'}) ->
+sub_type_of({terl_atom_type, false}, ?BOOLEAN) ->
   true;
 sub_type_of(T, T) ->
   true;
-sub_type_of(_, _) ->
-  false.
+sub_type_of(T1, T2) ->
+  type_equivalent(T1, T2).
 
 %%_-----------------------------------------------------------------------------
 
@@ -321,7 +320,7 @@ eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, State) ->
 eliminate({tuple, _L, Es}, _, Rs0, _) ->
   lists:flatten([eliminate(E, undefined, []) || E <- Es]) ++ Rs0;
 eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
-       {terl_type, string} = T, Rs, State) ->
+       ?STRING = T, Rs, State) ->
   eliminate(V, T, Rs, State);
 eliminate({record, _, _, _} = R, _T, Rs, State) ->
   Rs ++ eliminate_record_type(R, State);
@@ -371,6 +370,7 @@ gm({fun_type, Is, O}, TypedArgs, Mappings, Errs) ->
         case dict:find(T, NMappings) of
           {ok, Set} ->
             case gb_sets:to_list(Set) of
+              [] -> {undefined, Acc};
               [V] -> {V, Acc};
               [_|_] = Vs ->
                 {GT, Acc ++ [{can_not_instantiate_generic_type, T, Vs}]}
@@ -430,10 +430,8 @@ reduce_list_types({list_type, nothing} = T, OldSet) ->
   end;
 reduce_list_types({list_type, _} = T, OldSet) ->
   case gb_sets:is_member({list_type, nothing}, OldSet) of
-    true ->
-      gb_sets:add(T, gb_sets:delete({list_type, nothing}, OldSet));
-    false ->
-      gb_sets:add(T, OldSet)
+    true  -> gb_sets:add(T, gb_sets:delete({list_type, nothing}, OldSet));
+    false -> gb_sets:add(T, OldSet)
   end.
 
 generic_to_undefined(Type) ->
@@ -616,11 +614,8 @@ find_record_field_type(F, T) ->
 
 %%_-----------------------------------------------------------------------------
 
-
-
-
-
-
-
-
+type_alias(?STRING) ->
+  {list_type, ?CHAR};
+type_alias(T) ->
+  T.
 

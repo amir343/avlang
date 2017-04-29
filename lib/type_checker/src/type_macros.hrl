@@ -13,12 +13,14 @@
 %% limitations under the License.
 
 -define(ANY,       {terl_type, 'Any'}).
+-define(ATOM,      {terl_type, 'Atom'}).
 -define(BOOLEAN,   {terl_type, 'Boolean'}).
 -define(BINARY,    {terl_type, 'Binary'}).
 -define(CHAR,      {terl_type, 'Char'}).
 -define(FLOAT,     {terl_type, 'Float'}).
 -define(INTEGER,   {terl_type, 'Integer'}).
 -define(PID,       {terl_type, 'Pid'}).
+-define(TERM,      {terl_type, 'Term'}).
 -define(STRING,    {terl_type, 'String'}).
 -define(INVALID,   type_internal:invalid_operator()).
 -define(UNDEFINED, undefined).

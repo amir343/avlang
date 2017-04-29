@@ -4,18 +4,18 @@
 , "type UntypedFun :: (..) -> .. ."
 
 , "erlang:is_tuple :: (Any) -> Boolean."
-, "erlang:list_to_integer :: (String) -> Integer."
-, "erlang:integer_to_list :: (Integer) -> String."
-, "erlang:atom_to_list :: (Atom) -> String."
+, "erlang:list_to_integer :: ([Char]) -> Integer."
+, "erlang:integer_to_list :: (Integer) -> [Char]."
+, "erlang:atom_to_list :: (Atom) -> [Char]."
 , "erlang:element :: (Integer, {}) -> Any."
 , "erlang:hd :: ([A]) -> A."
 , "erlang:tl :: ([A]) -> [A]."
 
 , "is_tuple :: (Any) -> Boolean."
 , "is_integer :: (Any) -> Boolean."
-, "list_to_integer :: (String) -> Integer."
-, "integer_to_list :: (Integer) -> String."
-, "atom_to_list :: (Atom) -> String."
+, "list_to_integer :: ([Char]) -> Integer."
+, "integer_to_list :: (Integer) -> [Char]."
+, "atom_to_list :: (Atom) -> [Char]."
 , "element :: (Integer, {}) -> Any."
 , "hd :: ([A]) -> A."
 , "tl :: ([A]) -> [A]."
@@ -54,6 +54,7 @@
 , "lists:foldl :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
 , "lists:foldr :: (((A, ACC) -> ACC), ACC, [A]) -> ACC."
 , "lists:all :: ((A -> Boolean), [A]) -> Boolean."
+, "lists:dropwhile :: ((A -> Boolean), [A]) -> [A]."
 
-, "string:chars :: (Char, Integer) -> String."
+, "string:chars :: (Char, Integer) -> [Char]."
 ].

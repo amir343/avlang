@@ -49,6 +49,7 @@
 
 -include("type_checker_state.hrl").
 -include("../compiler/include/terl_compiler.hrl").
+-include("type_macros.hrl").
 
 %%------------------------------------------------------------------------------
 %%  MACROS
@@ -862,11 +863,17 @@ infer_function_clause(NAL, Inferred, Declared, S=#state{}) ->
   case type_internal:sub_type_of(Declared, Inferred) of
     true -> {Declared, S};
     false ->
-      {N, A, L} = NAL,
-      Err =
-        {L, ?TYPE_MSG,
-         {declared_inferred_fun_type_do_not_match, N, A, Declared, Inferred}},
-      {Inferred, state_dl:update_errors(S, [Err])}
+      case length(type_internal:extract_type_terminals(undefined, Declared)) of
+        0 ->
+          {N, A, L} = NAL,
+          Err =
+            {L, ?TYPE_MSG,
+             {declared_inferred_fun_type_do_not_match
+             , N, A, Declared, Inferred}},
+          {Inferred, state_dl:update_errors(S, [Err])};
+        _ ->
+          {Inferred, S}
+      end
   end.
 
 %%_-----------------------------------------------------------------------------
@@ -1100,28 +1107,28 @@ type_of({nil, _}, S) ->
   {{list_type, nothing}, S};
 
 type_of({integer, _, _}, S) ->
-  {type_internal:tag_built_in('Integer'), S};
+  {?INTEGER, S};
 
 type_of({float, _, _}, S) ->
-  {type_internal:tag_built_in('Float'), S};
+  {?FLOAT, S};
 
 type_of({atom, _, true}, S) ->
-  {type_internal:tag_built_in('Boolean'), S};
+  {?BOOLEAN, S};
 
 type_of({atom, _, false}, S) ->
-  {type_internal:tag_built_in('Boolean'), S};
+  {?BOOLEAN, S};
 
 type_of({char, _, _}, S) ->
-  {type_internal:tag_built_in('Char'), S};
+  {?CHAR, S};
 
 type_of({atom, _, T}, S) ->
   {{terl_atom_type, T}, S};
 
 type_of({string, _, _}, S) ->
-  {type_internal:tag_built_in('String'), S};
+  {type_internal:type_alias(?STRING), S};
 
 type_of({var, _L, '_'}, State0) ->
-  {type_internal:tag_built_in('Any'), State0};
+  {?ANY, State0};
 
 type_of({op, L, Op, LHS, RHS}, State0) ->
   {TL0, State1} = type_of(LHS, State0),
@@ -1405,7 +1412,7 @@ type_of({bin, _,  BinSegments}, State0) ->
                             {_, S1} = type_of(Seg, S0),
                             S1
                         end, State0, BinSegments),
-  {{terl_type, 'Binary'}, State1};
+  {?BINARY, State1};
 
 type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, State0) ->
   {TSL, State1} =
@@ -1420,7 +1427,7 @@ type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, State0) ->
   update_local(State1, V, TSL);
 
 type_of({bin_element, _, _, _, _}, State0) ->
- {{terl_type, 'Integer'}, State0};
+ {?INTEGER, State0};
 
 type_of({record, L, N, Fs}, St=#state{}) ->
   TN     = type_internal:find_record_type(N, St),
@@ -1516,7 +1523,7 @@ materialise_if_generic(FTypes, TypedArgs, L, Call, State) ->
           _ ->
             case dict:size(Mps) > 0 of
               true -> %% there were generic types involved
-                NErrs =
+               NErrs =
                   lists:map(
                     fun({can_not_instantiate_generic_type, T, V}) ->
                         {can_not_instantiate_generic_type, T, V, FType, Call};
@@ -1657,10 +1664,8 @@ dispatch_result(Res) ->
     Ls when is_list(Ls) ->
       Ts = lists:usort(Ls),
       case length(Ts) of
-        1 ->
-          hd(Ts);
-        _ ->
-          undefined
+        1 -> hd(Ts);
+        _ -> undefined
       end;
     T ->
       T
@@ -1672,21 +1677,25 @@ dispatch_result(Res) ->
 %% for a variable recusively to outer scopes until it finds a type.
 %% Returns the first found type.
 recursive_lookup(Var, S=#state{}, LocalS=#local_scope{}) ->
-  LS = state_dl:locals(S),
+  LS   = state_dl:locals(S),
   Vars = state_dl:vars(LocalS),
-  OS = state_dl:outer_scope(LocalS),
+  OS   = state_dl:outer_scope(LocalS),
   case dict:find(Var, Vars) of
-    {ok, #meta_var{type = T}} -> T;
+    {ok, #meta_var{type = T}} ->
+      type_internal:type_alias(T);
     error ->
       case OS of
-        nil -> undefined;
+        nil ->
+          undefined;
         ParentLS ->
           case dict:find(ParentLS, LS) of
             {ok, LS1} -> recursive_lookup(Var, S, LS1);
-            error -> undefined
+            error     -> undefined
           end
       end
   end.
+
+
 
 %%_-----------------------------------------------------------------------------
 
@@ -1732,7 +1741,7 @@ non_recursive_lookup(Var, State=#state{}) ->
 
 unwrap_list({list_type, T}, _) ->
   T;
-unwrap_list({terl_type, 'Any'} = T, _) ->
+unwrap_list(?ANY = T, _) ->
   T;
 unwrap_list(undefined, _) ->
   undefined;
@@ -1742,6 +1751,8 @@ unwrap_list(T, L) ->
 %%_-----------------------------------------------------------------------------
 
 %% Tries to infer the type for a variable based on operator application.
+infer_from_op(?BOOLEAN, _, Type, State) ->
+  {Type, State};
 infer_from_op(Res, {var, _, _} = Var, undefined, State) ->
   update_local(State, Var, Res);
 infer_from_op(Res, {var, _, _} = Var, {union_type, _}, State) ->
@@ -1802,7 +1813,7 @@ assert_found_fun_type(_, _, _, _, S) ->
 
 assert_binary_type(Expr, T, L, State0) ->
   case T of
-    {terl_type, 'Binary'} ->
+    ?BINARY ->
       State0;
     TWrong ->
       state_dl:update_errors(State0, L, {expected_binary_type, Expr, TWrong})
@@ -1834,7 +1845,7 @@ assert_record_field_type_equality(N, L, F, TF, TV, State0=#state{}) ->
 
 assert_guard_type(G, T, State=#state{}) ->
   case T of
-    {terl_type, 'Boolean'} ->
+    ?BOOLEAN ->
       State;
     WrongType ->
       state_dl:update_errors(State,
@@ -1849,7 +1860,7 @@ assert_list_validity(TH, TT) ->
     {undefined, _}          -> undefined;
     {_, undefined}          -> undefined;
     {_, nothing}            -> {list_type, TH};
-    {{terl_type, 'Any'}, _} -> {list_type, TT};
+    {?ANY, _} -> {list_type, TT};
     {T1, T2} ->
       {list_type, type_internal:lub(T1, T2)}
   end.
