@@ -239,7 +239,7 @@ bootstrap_erlang_types() ->
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "erlang_types.eterm")),
   ParsedSignature = [begin
                        try
-                         {ok, Tokens, _} = erl_scan:string(T),
+                         {ok, Tokens, _} = terl_scan:string(T),
                          {ok, ParsedTokens} = terl_parse:parse(Tokens),
                          ParsedTokens
                        catch

@@ -442,6 +442,14 @@ expr({match,_,Lhs,Rhs0}, Bs0, Lf, Ef, RBs) ->
     nomatch ->
 	    erlang:raise(error, {badmatch,Rhs}, stacktrace())
   end;
+expr({match,_,Lhs,_,Rhs0}, Bs0, Lf, Ef, RBs) ->
+  {value,Rhs,Bs1} = expr(Rhs0, Bs0, Lf, Ef, none),
+  case match(Lhs, Rhs, Bs1) of
+    {match,Bs} ->
+      ret_expr(Rhs, Bs, RBs);
+    nomatch ->
+	    erlang:raise(error, {badmatch,Rhs}, stacktrace())
+  end;
 expr({op,_,Op,A0}, Bs0, Lf, Ef, RBs) ->
   {value,A,Bs} = expr(A0, Bs0, Lf, Ef, none),
   eval_op(Op, A, Bs, Ef, RBs);
@@ -475,6 +483,8 @@ expr({bin,_,Fs}, Bs0, Lf, Ef, RBs) ->
   ret_expr(V, Bs, RBs);
 expr({remote,_,_,_}, _Bs, _Lf, _Ef, _RBs) ->
   erlang:raise(error, {badexpr,':'}, stacktrace());
+expr({type_anno, _, V, T}, Bs, _Lf, _Ef, RBs) ->
+  ret_expr({type, V, T}, Bs, RBs);
 expr({value,_,Val}, Bs, _Lf, _Ef, RBs) ->    % Special case straight values.
   ret_expr(Val, Bs, RBs).
 
