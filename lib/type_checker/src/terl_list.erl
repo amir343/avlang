@@ -21,6 +21,8 @@
 
 -include("type_macros.hrl").
 
+op(Op, ?CHAR, T)                  -> ?STRING_MOD:op(Op, T);
+
 op('++', T, {list_type, nothing}) -> {list_type, T};
 op('--', T, {list_type, nothing}) -> {list_type, T};
 op('++', nothing, {list_type, T}) -> {list_type, T};
