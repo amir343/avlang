@@ -182,7 +182,7 @@ check_command(Es, Bs) ->
 
 fun_data(F) when is_function(F) ->
   case erlang:fun_info(F, module) of
-    {module,erl_eval} ->
+    {module,terl_eval} ->
       case erlang:fun_info(F, env) of
         {env,[{FBs,_FLf,_FEf,FCs}]} ->
           {fun_data,FBs,FCs};
@@ -281,7 +281,7 @@ expr({'fun',_Line,{function,Mod0,Name0,Arity0}}, Bs0, Lf, Ef, RBs) ->
   ret_expr(F, Bs, RBs);
 expr({'fun',_Line,{function,Name,Arity}}, _Bs0, _Lf, _Ef, _RBs) -> % R8
   %% Don't know what to do...
-  erlang:raise(error, undef, [{erl_eval,Name,Arity}|stacktrace()]);
+  erlang:raise(error, undef, [{terl_eval,Name,Arity}|stacktrace()]);
 expr({'fun',Line,{clauses,Cs}} = Ex, Bs, Lf, Ef, RBs) ->
   %% Save only used variables in the function environment.
   %% {value,L,V} are hidden while lint finds used variables.
@@ -580,12 +580,12 @@ local_func(Func, As, _Bs, {M,F,Eas}, _Ef, RBs) ->
   local_func2(apply(M, F, [Func,As|Eas]), RBs);
 %% Default unknown function handler to undefined function.
 local_func(Func, As0, _Bs0, none, _Ef, _RBs) ->
-  erlang:raise(error, undef, [{erl_eval,Func,length(As0)}|stacktrace()]).
+  erlang:raise(error, undef, [{terl_eval,Func,length(As0)}|stacktrace()]).
 
 local_func2({value,V,Bs}, RBs) ->
   ret_expr(V, Bs, RBs);
 local_func2({eval,F,As,Bs}, RBs) -> % This reply is not documented.
-  %% The shell found F. erl_eval tries to do a tail recursive call,
+  %% The shell found F. terl_eval tries to do a tail recursive call,
   %% something the shell cannot do. Do not use Ef here.
   do_apply(F, As, Bs, none, RBs).
 

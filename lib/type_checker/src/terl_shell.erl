@@ -53,10 +53,8 @@ server_loop(State) ->
 
 prompt() ->
   case is_alive() of
-    true ->
-      io_lib:format("~s", [node_prompt()]);
-    false ->
-      io_lib:format("~s", [user_prompt()])
+    true  -> io_lib:format("~s", [node_prompt()]);
+    false -> io_lib:format("~s", [user_prompt()])
   end.
 
 node_prompt() ->
@@ -91,6 +89,8 @@ generate_banner() ->
      ?GRN("              \\/                \\/     \\//_____/  ") ++ "\n\n"
     ,[])].
 
+report_error({error, C}) ->
+  io:format("~p~n~n", [C]);
 report_error(Error) ->
   io:format("Error: ~p~n~n", [Error]).
 
@@ -154,15 +154,25 @@ evaluator_loop() ->
 
 evaluate_exprs(Exprs0, Bs) ->
   try
-    Exprs = lists:map(fun map_shell_commands/1, Exprs0),
-    terl_eval:exprs(Exprs, Bs, none, none)
+    case is_forget_binding(Exprs0) of
+      {true, Binding} ->
+        {value, ok, terl_eval:del_binding(Binding, Bs)};
+      false ->
+        Exprs = lists:map(fun map_shell_commands/1, Exprs0),
+        terl_eval:exprs(Exprs, Bs, none, none)
+    end
   catch
     C:E ->
-      {error, {C, E, erlang:get_stacktrace()}}
+      {error, {C, E}}
   end.
 
+is_forget_binding([{call, _, {atom, _, f}, [{var, _, Binding}]}]) ->
+  {true, Binding};
+is_forget_binding(_) ->
+  false.
+
 shell_commands() ->
-  [c, clear, help, h].
+  [c, clear, exit, help, h, q].
 
 map_shell_commands({call, L1, {atom, L2, Cmd}, Args} = Abs) ->
   case lists:member(Cmd, shell_commands()) of
@@ -192,14 +202,16 @@ clear() ->
 h() -> help().
 
 help() ->
-    io:put_chars(<<"\nTerl shell built-in functions\n\n"
-                   "c(file)        -- compile and load code in <file>\n"
-                   "clear()        -- clear REPL output\n"
-                   "h()            -- an alias for help command\n"
-                   "help()         -- print this help info\n"
-                   "q()            -- quit the shell\n"
-                   "exit()         -- an alias for q()\n"
-                 >>).
+  io:put_chars(<<"\nTerl shell built-in functions\n\n"
+                 "c(file)        -- compile and load code in <file>\n"
+                 "clear()        -- clear REPL output\n"
+                 "f(Binding)     -- forget a binding\n"
+                 "h()            -- an alias for help command\n"
+                 "help()         -- print this help info\n"
+                 "q()            -- quit the shell\n"
+                 "exit()         -- an alias for q()\n"
+                 "\n\n"
+               >>).
 
 q() ->
   c:q().
