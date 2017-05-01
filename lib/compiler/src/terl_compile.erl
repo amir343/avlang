@@ -344,10 +344,28 @@ run_eprof({Name,Fun}, Name, St) ->
 run_eprof({_,Fun}, _, St) ->
   catch Fun(St).
 
-comp_ret_ok([_|_] = Compiles) ->
-  lists:foreach(fun(Compile) ->
-                    comp_ret_ok(Compile)
-                end, Compiles);
+comp_ret_ok(Compiles) when is_list(Compiles) ->
+  Res =
+    lists:map(fun(Compile) ->
+                  comp_ret_ok(Compile)
+              end, Compiles),
+  {Oks, Errors} =
+    lists:foldl(fun(C, {Oks, Errs}) ->
+                    case element(1, C) of
+                      error -> {Oks, [remove_tuple_head(C) | Errs]};
+                      ok    -> {[remove_tuple_head(C) | Oks], Errs}
+                    end
+                end, {[], []}, Res),
+  case length(Errors) of
+    0 -> case Oks of
+           [Ok] -> {ok, Ok};
+           Oks  -> {ok, Oks}
+         end;
+    _ -> case Errors of
+           [Error] -> {error, Error};
+           Errors -> {error, Errors}
+         end
+  end;
 comp_ret_ok(#compile{code=Code,warnings=Warn0,module=Mod,options=Opts}=St) ->
   case werror(St) of
     true ->
@@ -374,25 +392,30 @@ comp_ret_ok(#compile{code=Code,warnings=Warn0,module=Mod,options=Opts}=St) ->
       list_to_tuple([ok,Mod|Ret2])
   end.
 
-comp_ret_err([_|_] = Compiles) ->
+remove_tuple_head(Tuple) ->
+  List = tl(tuple_to_list(Tuple)),
+  case List of
+    [E] -> E;
+    Es  -> Es
+  end.
+
+comp_ret_err(Compiles) when is_list(Compiles)  ->
   Errors =
     lists:map(fun(Compile) ->
-                  comp_ret_err(Compile)
+                  remove_tuple_head(comp_ret_err(Compile))
               end, Compiles),
-  Errors1 = lists:filter(fun(E) -> E =/= error end, Errors),
-  case length(Errors1) of
-    0 -> error;
-    1 -> hd(Errors1);
-    _ -> Errors1
+  case Errors of
+    [Error] -> {error, Error};
+    _       -> {error, Errors}
   end;
-comp_ret_err(#compile{warnings=Warn0,errors=Err0,options=Opts}=St) ->
+comp_ret_err(#compile{warnings=Warn0,errors=Err0,module=Mod,options=Opts}=St) ->
   Warn = messages_per_file(Warn0),
   Err = messages_per_file(Err0),
   report_errors(St#compile{errors=Err}),
   report_warnings(St#compile{warnings=Warn}),
   case member(return_errors, Opts) of
-    true -> {error,Err,Warn};
-    false -> error
+    true  -> {error,Mod,Err,Warn};
+    false -> {error, Mod}
   end.
 
 werror(#compile{options=Opts,warnings=Ws}) ->
@@ -426,7 +449,6 @@ passes(Type, Opts) ->
              forms -> standard_passes()
            end,
   SelectedPasses = select_passes(Passes, Opts),
-  io:format("SelectedPasses: ~p~n", [SelectedPasses]),
   {".erl", SelectedPasses}.
 
 %% select_passes([Command], Opts) -> [{Name,Function}]
