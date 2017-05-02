@@ -69,6 +69,11 @@ op('bnot', undefined) -> ?SELF;
 op('div', undefined)  -> ?SELF;
 op('rem', undefined)  -> ?SELF;
 
+op('/', ?INTEGER)     -> ?SELF;
+op('+', ?INTEGER)     -> ?SELF;
+op('-', ?INTEGER)     -> ?SELF;
+op('*', ?INTEGER)     -> ?SELF;
+
 op('+', ?FLOAT)       -> ?FLOAT;
 op('-', ?FLOAT)       -> ?FLOAT;
 op('/', ?FLOAT)       -> ?FLOAT;

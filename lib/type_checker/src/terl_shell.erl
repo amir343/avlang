@@ -9,20 +9,22 @@
         , exit/0
         , h/0
         , help/0
+        , l/1
         , q/0
         ]).
 
--record(state, { eval
-               , bs    = []
-               , cnt   = 0
-               }).
-
-
-%% Colours for the banner
+%% Colours for the shell
 -define(RED(Str), "\e[31m" ++ Str ++ "\e[0m").
 -define(GRN(Str), "\e[1;32m" ++ Str ++ "\e[0m").
 -define(YLW(Str), "\e[1;33m" ++ Str ++ "\e[0m").
 -define(BLU(Str), "\e[1;34m" ++ Str ++ "\e[0m").
+-define(PUR(Str), "\e[0;95m" ++ Str ++ "\e[0m").
+
+-record(state, { eval
+               , bs      = []
+               , type_bs = []
+               , cnt     = 0
+               }).
 
 start() ->
   spawn(fun() -> server() end).
@@ -79,16 +81,6 @@ read_expression(Prompt) ->
       Ret
   end.
 
-generate_banner() ->
-  [io_lib:format(
-     ?GRN(" ___________          .__                         \n") ++
-     ?GRN(" \\__    ___/__________|  | _____    ____    ____ \n") ++
-     ?GRN("   |    |_/ __ \\_  __ \\  | \\__  \\  /    \\  / ___\\") ++ "      |  Type-safe Erlang! \n" ++
-     ?GRN("   |    |\\  ___/|  | \\/  |__/ __ \\|   |  \\/ /_/  >") ++ "     |  Source: " ++ ?BLU("https://github.com/amir343/terlang") ++ "\n" ++
-     ?GRN("   |____| \\___  >__|  |____(____  /___|  /\\___  / \n") ++
-     ?GRN("              \\/                \\/     \\//_____/  ") ++ "\n\n"
-    ,[])].
-
 report_error({error, C}) ->
   io:format("~p~n~n", [C]);
 report_error(Error) ->
@@ -106,38 +98,35 @@ read_one_expression(Prompt) ->
 read_one_expression(Prompt, Result) ->
   Line = read_line(Prompt),
   case Line of
-    {error, _} ->
-      Line;
+    {error, _} -> Line;
     _ ->
       case lists:reverse(Line) of
-        [$\n, $. | _] ->
-          {ok, Result ++ Line};
-        _ ->
-          read_one_expression(Prompt, Result ++ Line)
+        [$\n, $. | _] -> {ok, Result ++ Line};
+        _             -> read_one_expression(Prompt, Result ++ Line)
       end
   end.
 
 read_line(Prompt) ->
   case io:get_line(standard_io, Prompt) of
-    {error, Error} ->
-      {error, {io, Error}};
-    Line -> Line
+    {error, Error} -> {error, {io, Error}};
+    Line           -> Line
   end.
 
-evaluate(Exprs, State=#state{bs = Bs, eval = Pid, cnt = Cnt}) ->
+evaluate(Exprs, State=#state{bs = Bs, type_bs = TBs, eval = Pid, cnt = Cnt}) ->
   NPid =
     case process_info(Pid) =/= undefined of
       true  -> Pid;
       false -> spawn(fun() -> evaluator_loop() end)
     end,
-  NPid ! {eval, Exprs, Bs, self()},
+  NPid ! {eval, Exprs, Bs, TBs, self()},
   receive
-    {value, {type, V, T}, NewBs} ->
-      io:format("res~p: ~s :: ~s~n~n", [Cnt, type_err_msg:p_expr(V), type_err_msg:p_type(T)]),
-      State#state{bs = NewBs, eval = NPid, cnt = Cnt + 1};
-    {value, V, NewBs} ->
-      io:format("res~p: ~p~n~n", [Cnt, V]),
-      State#state{bs = NewBs, eval = NPid, cnt = Cnt + 1};
+    {value, {type, V, T}, _, NewBs, NewTBs} ->
+      io:format("res~p: ~s :: ~s~n~n",
+                [Cnt, type_err_msg:p_expr(V), type_err_msg:pp_type(T)]),
+      State#state{bs = NewBs, type_bs = NewTBs, eval = NPid, cnt = Cnt + 1};
+    {value, V, T, NewBs, NewTBs} ->
+      io:format("res~p :: ~s = ~p~n~n", [Cnt, type_err_msg:pp_type(T), V]),
+      State#state{bs = NewBs, type_bs = NewTBs, eval = NPid, cnt = Cnt + 1};
     {error, Error} ->
       report_error(Error),
       State#state{eval = NPid, cnt = Cnt + 1}
@@ -145,21 +134,24 @@ evaluate(Exprs, State=#state{bs = Bs, eval = Pid, cnt = Cnt}) ->
 
 evaluator_loop() ->
   receive
-    {eval, Exprs, Bs, From} ->
-      From ! evaluate_exprs(Exprs, Bs),
+    {eval, Exprs, Bs, TBs, From} ->
+      From ! evaluate_exprs(Exprs, Bs, TBs),
       evaluator_loop();
     _ ->
       evaluator_loop()
     end.
 
-evaluate_exprs(Exprs0, Bs) ->
+evaluate_exprs(Exprs0, Bs, TBs) ->
   try
     case is_forget_binding(Exprs0) of
       {true, Binding} ->
-        {value, ok, terl_eval:del_binding(Binding, Bs)};
+        {value, ok, ok, terl_eval:del_binding(Binding, Bs),
+         lists:keydelete(Binding, 1, TBs)};
       false ->
         Exprs = lists:map(fun map_shell_commands/1, Exprs0),
-        terl_eval:exprs(Exprs, Bs, none, none)
+        {value, V, NBs} = terl_eval:exprs(Exprs, Bs, none, none),
+        {Type, NTBs} = type_check:exprs(Exprs, TBs),
+        {value, V, Type, NBs, NTBs}
     end
   catch
     C:E ->
@@ -172,7 +164,7 @@ is_forget_binding(_) ->
   false.
 
 shell_commands() ->
-  [c, clear, exit, help, h, q].
+  [c, clear, exit, help, h, l, q].
 
 map_shell_commands({call, L1, {atom, L2, Cmd}, Args} = Abs) ->
   case lists:member(Cmd, shell_commands()) of
@@ -208,10 +200,14 @@ help() ->
                  "f(Binding)     -- forget a binding\n"
                  "h()            -- an alias for help command\n"
                  "help()         -- print this help info\n"
+                 "l(Mod)         -- load or reload a module\n"
                  "q()            -- quit the shell\n"
                  "exit()         -- an alias for q()\n"
                  "\n\n"
                >>).
+
+l(Mod) ->
+  c:l(Mod).
 
 q() ->
   c:q().
@@ -247,3 +243,15 @@ lm(Mod, OutDir) ->
 
 out_dir(Opts) ->
   proplists:get_value(outdir, Opts, ".").
+
+%%_-----------------------------------------------------------------------------
+
+generate_banner() ->
+  [io_lib:format(
+     ?GRN(" ___________          .__                         \n") ++
+     ?GRN(" \\__    ___/__________|  | _____    ____    ____ \n") ++
+     ?GRN("   |    |_/ __ \\_  __ \\  | \\__  \\  /    \\  / ___\\") ++ "      |  Type-safe Erlang! \n" ++
+     ?GRN("   |    |\\  ___/|  | \\/  |__/ __ \\|   |  \\/ /_/  >") ++ "     |  Source: " ++ ?BLU("https://github.com/amir343/terlang") ++ "\n" ++
+     ?GRN("   |____| \\___  >__|  |____(____  /___|  /\\___  / ") ++ "     |\n"
+     ?GRN("              \\/                \\/     \\//_____/  ") ++ "     | v0.1" ++ "\n\n"
+    ,[])].

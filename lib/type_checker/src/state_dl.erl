@@ -159,7 +159,10 @@ new_local_scope(Name) ->
   #local_scope{name = Name}.
 
 new_module_scope(Filename, Forms, Compile) ->
-  #module_scope{filename = Filename, forms = Forms, compile_record = Compile}.
+  #module_scope{ filename = Filename
+               , forms = Forms
+               , compile_record = Compile
+               , fun_lookup = nil}.
 
 outer_scope(#local_scope{outer_scope = OS}) ->
   OS.

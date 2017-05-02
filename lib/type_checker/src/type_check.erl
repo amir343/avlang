@@ -40,6 +40,8 @@
         , module/2
         , modules/1
         , modules/2
+        , exprs/1
+        , exprs/2
         ]).
 
 -export([ bootstrap_erlang_types/0
@@ -74,6 +76,11 @@ modules([#compile{} | _] = Compiles) ->
 modules([#compile{} | _] = Compiles, Opts) ->
   run_passes(Compiles, Opts).
 
+exprs(Exprs) ->
+  exprs(Exprs, []).
+
+exprs(Exprs, TypeBindings) ->
+  type_check_exprs(Exprs, TypeBindings).
 
 %%------------------------------------------------------------------------------
 %%  INTERNAL
@@ -176,6 +183,34 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
           end
       end
   end.
+
+%%_-----------------------------------------------------------------------------
+
+type_check_exprs(Exprs, TypeBindings) ->
+  LsName = {anonym_ls, length(Exprs)},
+  MS  = state_dl:new_module_scope(anonym, [], nil),
+  St1 = state_dl:erlang_types(state_dl:new_state(), bootstrap_erlang_types()),
+  St2 = state_dl:guard_types(St1, erlang_guard_signature()),
+  St3 = state_dl:current_module(St2, MS),
+  St4 = state_dl:start_ls(LsName, St3),
+  St5 = import_type_bindings(St4, TypeBindings),
+  {T, St6} =
+    lists:foldl(fun(Expr, {_, S0}) ->
+                    type_check_expr(Expr, S0)
+                end, {nil, St5}, Exprs),
+  NTypeBindings = export_type_bindings_from_local_scope(St6),
+  {T, NTypeBindings}.
+
+import_type_bindings(St0, TypeBindings) ->
+  lists:foldl(
+    fun({K, T}, S) ->
+        {_, S1} = update_local(S, {var, 1, K}, T),
+        S1
+    end, St0, TypeBindings).
+
+export_type_bindings_from_local_scope(St0) ->
+  Vars = state_dl:vars(state_dl:local(St0)),
+  [{V, T} || {V, #meta_var{type = T}} <- dict:to_list(Vars)].
 
 %%_-----------------------------------------------------------------------------
 
