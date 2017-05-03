@@ -186,7 +186,10 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
 
 %%_-----------------------------------------------------------------------------
 
-type_check_exprs(Exprs, TypeBindings) ->
+%% This function is used for type checking some expressions outside of any
+%% module scope. It is mainly used from `terl_shell' and it considers already
+%% existing `TypeBindings'.
+type_check_exprs(Exprs, TypeBindings) when is_list(Exprs) ->
   LsName = {anonym_ls, length(Exprs)},
   MS  = state_dl:new_module_scope(anonym, [], nil),
   St1 = state_dl:erlang_types(state_dl:new_state(), bootstrap_erlang_types()),
@@ -199,7 +202,9 @@ type_check_exprs(Exprs, TypeBindings) ->
                     type_check_expr(Expr, S0)
                 end, {nil, St5}, Exprs),
   NTypeBindings = export_type_bindings_from_local_scope(St6),
-  {T, NTypeBindings}.
+  {T, NTypeBindings};
+type_check_exprs(Expr, TypeBindings) ->
+  type_check_exprs([Expr], TypeBindings).
 
 import_type_bindings(St0, TypeBindings) ->
   lists:foldl(

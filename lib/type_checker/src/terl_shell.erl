@@ -45,8 +45,8 @@ server_loop(State) ->
   Ret = read_expression(Prompt),
   State1 =
     case Ret of
-      {error, Error} ->
-        report_error(Error),
+      {error, _} = E->
+        report_error(E),
         State;
       {ok, Exprs} ->
         evaluate(Exprs, State)
@@ -89,11 +89,17 @@ report_error(Error) ->
 read_one_expression(Prompt) ->
   case read_one_expression(Prompt, "") of
     {ok, Line} ->
-      {ok, Tokens, _} = terl_scan:string(Line),
-      terl_parse:parse_exprs(Tokens);
+      case string_to_abs_form(Line) of
+        {ok, E}                 -> E;
+        {error, {_, _, Reason}} -> {error, lists:flatten(Reason)}
+      end;
     {error, _} = Error ->
       Error
   end.
+
+string_to_abs_form(Str) ->
+  {ok, Tokens, _} = terl_scan:string(Str),
+  terl_parse:parse_exprs(Tokens).
 
 read_one_expression(Prompt, Result) ->
   Line = read_line(Prompt),
@@ -145,18 +151,30 @@ evaluate_exprs(Exprs0, Bs, TBs) ->
   try
     case is_forget_binding(Exprs0) of
       {true, Binding} ->
-        {value, ok, ok, terl_eval:del_binding(Binding, Bs),
+        {value, ok, {terl_atom_type, ok}, terl_eval:del_binding(Binding, Bs),
          lists:keydelete(Binding, 1, TBs)};
       false ->
         Exprs = lists:map(fun map_shell_commands/1, Exprs0),
         {value, V, NBs} = terl_eval:exprs(Exprs, Bs, none, none),
+        VStr = term_to_string(V),
         {Type, NTBs} = type_check:exprs(Exprs, TBs),
-        {value, V, Type, NBs, NTBs}
+        %% Skip type intersection of the returned value is a function.
+        FinalType =
+          case re:run(VStr, "#Fun<.*>$") of
+            {match, _} -> Type;
+            _ ->
+              ValueAbs = string_to_abs_form(VStr ++ "."),
+              {ValueType, _} = type_check:exprs(ValueAbs),
+              type_internal:type_intersection(ValueType, Type)
+          end,
+        {value, V, FinalType, NBs, NTBs}
     end
   catch
-    C:E ->
-      {error, {C, E}}
+    C:E -> {error, {C, E}}
   end.
+
+term_to_string(Term) ->
+  lists:flatten(io_lib:format("~p", [Term])).
 
 is_forget_binding([{call, _, {atom, _, f}, [{var, _, Binding}]}]) ->
   {true, Binding};

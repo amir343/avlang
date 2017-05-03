@@ -22,7 +22,8 @@
 , "hd :: ([A]) -> A."
 , "tl :: ([A]) -> [A]."
 
-, "c:l :: (Atom) -> {ok, Atom} | {error, Atom}."
+, "c:l :: (Atom) -> {module, Atom} | {error, Atom}."
+, "terl_shell:l :: (Atom) -> {module, Atom} | {error, Atom}."
 
 , "spawn :: UntypedFun -> Pid."
 , "spawn :: (Atom, UntypedFun) -> Pid."
@@ -39,12 +40,12 @@
 , "spawn_opt :: (Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 , "spawn_opt :: (Atom, Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 
-, "erlang:spawn :: ((..) -> ..) -> Pid."
-, "erlang:spawn :: (Atom, (..) -> ..) -> Pid."
+, "erlang:spawn :: (UntypedFun) -> Pid."
+, "erlang:spawn :: (Atom, UntypedFun) -> Pid."
 , "erlang:spawn :: (Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn :: (Atom, Atom, Atom, [Any]) -> Pid."
-, "erlang:spawn_link :: ((..) -> ..) -> Pid."
-, "erlang:spawn_link :: (Atom, (..) -> ..) -> Pid."
+, "erlang:spawn_link :: (UntypedFun) -> Pid."
+, "erlang:spawn_link :: (Atom, UntypedFun) -> Pid."
 , "erlang:spawn_link :: (Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn_link :: (Atom, Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn_monitor :: (UntypedFun) -> {Pid, Reference}."
