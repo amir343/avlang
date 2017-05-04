@@ -90,7 +90,7 @@ read_one_expression(Prompt) ->
   case read_one_expression(Prompt, "") of
     {ok, Line} ->
       case string_to_abs_form(Line) of
-        {ok, E}                 -> E;
+        {ok, _} = E             -> E;
         {error, {_, _, Reason}} -> {error, lists:flatten(Reason)}
       end;
     {error, _} = Error ->
@@ -126,12 +126,13 @@ evaluate(Exprs, State=#state{bs = Bs, type_bs = TBs, eval = Pid, cnt = Cnt}) ->
     end,
   NPid ! {eval, Exprs, Bs, TBs, self()},
   receive
-    {value, {type, V, T}, _, NewBs, NewTBs} ->
+    {value, {type, V, T}, _, NewBs, NewTBs, _} ->
       io:format("res~p: ~s :: ~s~n~n",
                 [Cnt, type_err_msg:p_expr(V), type_err_msg:pp_type(T)]),
       State#state{bs = NewBs, type_bs = NewTBs, eval = NPid, cnt = Cnt + 1};
-    {value, V, T, NewBs, NewTBs} ->
+    {value, V, T, NewBs, NewTBs, Errors} ->
       io:format("res~p :: ~s = ~p~n~n", [Cnt, type_err_msg:pp_type(T), V]),
+      [type_err_msg:format_error(E) || E <- Errors],
       State#state{bs = NewBs, type_bs = NewTBs, eval = NPid, cnt = Cnt + 1};
     {error, Error} ->
       report_error(Error),
@@ -152,22 +153,22 @@ evaluate_exprs(Exprs0, Bs, TBs) ->
     case is_forget_binding(Exprs0) of
       {true, Binding} ->
         {value, ok, {terl_atom_type, ok}, terl_eval:del_binding(Binding, Bs),
-         lists:keydelete(Binding, 1, TBs)};
+         lists:keydelete(Binding, 1, TBs), []};
       false ->
         Exprs = lists:map(fun map_shell_commands/1, Exprs0),
         {value, V, NBs} = terl_eval:exprs(Exprs, Bs, none, none),
         VStr = term_to_string(V),
-        {Type, NTBs} = type_check:exprs(Exprs, TBs),
+        {Type, NTBs, Error} = type_check:exprs(Exprs, TBs),
         %% Skip type intersection of the returned value is a function.
         FinalType =
           case re:run(VStr, "#Fun<.*>$") of
             {match, _} -> Type;
             _ ->
-              ValueAbs = string_to_abs_form(VStr ++ "."),
-              {ValueType, _} = type_check:exprs(ValueAbs),
+              {ok, ValueAbs} = string_to_abs_form(VStr ++ "."),
+              {ValueType, _, _} = type_check:exprs(ValueAbs),
               type_internal:type_intersection(ValueType, Type)
           end,
-        {value, V, FinalType, NBs, NTBs}
+        {value, V, FinalType, NBs, NTBs, Error}
     end
   catch
     C:E -> {error, {C, E}}

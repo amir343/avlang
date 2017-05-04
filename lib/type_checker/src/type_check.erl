@@ -202,7 +202,8 @@ type_check_exprs(Exprs, TypeBindings) when is_list(Exprs) ->
                     type_check_expr(Expr, S0)
                 end, {nil, St5}, Exprs),
   NTypeBindings = export_type_bindings_from_local_scope(St6),
-  {T, NTypeBindings};
+  Errors = state_dl:errors(St6),
+  {T, NTypeBindings, Errors};
 type_check_exprs(Expr, TypeBindings) ->
   type_check_exprs([Expr], TypeBindings).
 
@@ -1387,14 +1388,15 @@ type_of({'case', _, E, Cls}, State0) ->
 
 type_of({'if', _, Cls}, State0) ->
   {_, TCls, State1} =
-    lists:foldl(fun({clause, L1, _, Gs, Exprs} = Cl, {Ind, Ts, S0}) ->
-                    Name =
-                      create_clause_name("if_clause", Ind, L1, [], Gs, Exprs),
-                    S1       = state_dl:nest_ls(Name, S0),
-                    {TC, S2} = type_check_if_clause(Cl, S1),
-                    S3 = state_dl:sync_ls(Name, S2),
-                    {Ind + 1, Ts ++ [TC], S3}
-                end, {0, [], State0}, Cls),
+    lists:foldl(
+      fun({clause, L1, _, Gs, Exprs} = Cl, {Ind, Ts, S0}) ->
+          Name =
+            create_clause_name("if_clause", Ind, L1, [], Gs, Exprs),
+          S1       = state_dl:nest_ls(Name, S0),
+          {TC, S2} = type_check_if_clause(Cl, S1),
+          S3 = state_dl:sync_ls(Name, S2),
+          {Ind + 1, Ts ++ [TC], S3}
+      end, {0, [], State0}, Cls),
   Tlub = find_lub(TCls),
   {Tlub, State1};
 
@@ -1413,10 +1415,11 @@ type_of({b_generate, L, P, E}, State0) ->
 type_of({lc, L, E, Qs}, State0) ->
   Name   = {"lc", L, length(Qs)},
   State1 = state_dl:nest_ls(Name, State0),
-  State2 = lists:foldl(fun(Q, S0) ->
-                            {_, S1} = type_of(Q, S0),
-                            S1
-                        end, State1, Qs),
+  State2 = lists:foldl(
+             fun(Q, S0) ->
+                 {_, S1} = type_of(Q, S0),
+                 S1
+             end, State1, Qs),
   {TE, State3} = type_of(E, State2),
   LCType = {list_type, TE},
   State4 = state_dl:update_type_in_local_scope(LCType, State3),
@@ -1426,10 +1429,11 @@ type_of({lc, L, E, Qs}, State0) ->
 type_of({bc, L, E, Qs}, State0) ->
   Name = {"bc", L, length(Qs)},
   State1 = state_dl:nest_ls(Name, State0),
-  State2 = lists:foldl(fun(Q, S0) ->
-                            {_, S1} = type_of(Q, S0),
-                            S1
-                        end, State1, Qs),
+  State2 = lists:foldl(
+             fun(Q, S0) ->
+                 {_, S1} = type_of(Q, S0),
+                 S1
+             end, State1, Qs),
   {TE, State3} = type_of(E, State2),
   State4       = state_dl:update_type_in_local_scope(TE, State3),
   State5       = state_dl:sync_ls(Name, State4),
@@ -1439,19 +1443,21 @@ type_of({block, L, Exprs}, State0) ->
   Name   = {"block", L, length(Exprs)},
   State1 = state_dl:nest_ls(Name, State0),
   {TLastExpr, State2} =
-    lists:foldl(fun(Expr, S0) ->
-                    type_of(Expr, S0)
-                end, State1, Exprs),
+    lists:foldl(
+      fun(Expr, S0) ->
+          type_of(Expr, S0)
+      end, State1, Exprs),
 
   State3 = state_dl:update_type_in_local_scope(TLastExpr, State2),
   State4 = state_dl:sync_ls(Name, State3),
   {TLastExpr, State4};
 
 type_of({bin, _,  BinSegments}, State0) ->
-  State1 = lists:foldl(fun(Seg, S0) ->
-                            {_, S1} = type_of(Seg, S0),
-                            S1
-                        end, State0, BinSegments),
+  State1 = lists:foldl(
+             fun(Seg, S0) ->
+                 {_, S1} = type_of(Seg, S0),
+                 S1
+             end, State0, BinSegments),
   {?BINARY, State1};
 
 type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, State0) ->
