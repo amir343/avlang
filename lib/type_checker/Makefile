@@ -35,7 +35,9 @@ MODULES =  \
 	type_check_compiler_opts \
 	type_err_msg \
 	type_internal \
-	type_api
+	type_api \
+	terl_shell \
+	terl_init
 
 HRL_FILES= \
 	type_macros.hrl \

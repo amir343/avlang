@@ -17,6 +17,8 @@
 -export([ format_error/1
         , pp_type/1
         , p_type/1
+        , pp_expr/1
+        , p_expr/1
         ]).
 
 -export([ internal_format_error/3

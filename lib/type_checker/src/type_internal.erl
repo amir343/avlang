@@ -33,6 +33,7 @@
         , sub_type_of/2
         , type_alias/1
         , type_equivalent/2
+        , type_intersection/2
         , type_map/2
         , type_mapfold/3
         , type_tag/1
@@ -293,6 +294,18 @@ sub_type_of(T, T) ->
   true;
 sub_type_of(T1, T2) ->
   type_equivalent(T1, T2).
+
+%%_-----------------------------------------------------------------------------
+
+%% Type intersection for two tpes T1 and T2 is defined as T1 if
+%% T1 is subtype of T2 and T2 if T2 is subtype of T1. Otherwise
+%% the intersection would be type nothing.
+type_intersection(T1, T2) ->
+  case {sub_type_of(T1, T2), sub_type_of(T2, T1)} of
+    {true, _}      -> T1;
+    {false, true}  -> T2;
+    {false, false} -> nothing
+  end.
 
 %%_-----------------------------------------------------------------------------
 

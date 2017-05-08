@@ -24,6 +24,13 @@ function shell {
         -pa ${COMPILER}/ebin
 }
 
+function terl {
+    bootstrap/bin/erl \
+        -pa ${TYPE_CHECK}/ebin \
+        -pa ${COMPILER}/ebin \
+        -user terl_init
+}
+
 function evaluate {
     [[ -z "$1" ]] && echo "No input given to eval" && exit 1
 
@@ -57,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         shell)
             shell
+            shift
+            ;;
+        terl)
+            terl
             shift
             ;;
         eval)

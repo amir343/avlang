@@ -5,6 +5,7 @@
 
 , "erlang:is_tuple :: (Any) -> Boolean."
 , "erlang:list_to_integer :: ([Char]) -> Integer."
+, "erlang:list_to_atom :: ([Char]) -> Atom."
 , "erlang:integer_to_list :: (Integer) -> [Char]."
 , "erlang:atom_to_list :: (Atom) -> [Char]."
 , "erlang:element :: (Integer, {}) -> Any."
@@ -14,11 +15,17 @@
 , "is_tuple :: (Any) -> Boolean."
 , "is_integer :: (Any) -> Boolean."
 , "list_to_integer :: ([Char]) -> Integer."
+, "list_to_atom :: ([Char]) -> Atom."
 , "integer_to_list :: (Integer) -> [Char]."
 , "atom_to_list :: (Atom) -> [Char]."
 , "element :: (Integer, {}) -> Any."
 , "hd :: ([A]) -> A."
 , "tl :: ([A]) -> [A]."
+
+, "c:l :: (Atom) -> {module, Atom} | {error, Atom}."
+, "terl_shell:l :: (Atom) -> {module, Atom} | {error, Atom}."
+, "shell_defaults:i :: () -> ok."
+, "terl_shell:i :: () -> ok."
 
 , "spawn :: UntypedFun -> Pid."
 , "spawn :: (Atom, UntypedFun) -> Pid."
@@ -35,12 +42,12 @@
 , "spawn_opt :: (Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 , "spawn_opt :: (Atom, Atom, Atom, [Any], SpawnOptOptions) -> Pid | {Pid, Reference}."
 
-, "erlang:spawn :: ((..) -> ..) -> Pid."
-, "erlang:spawn :: (Atom, (..) -> ..) -> Pid."
+, "erlang:spawn :: (UntypedFun) -> Pid."
+, "erlang:spawn :: (Atom, UntypedFun) -> Pid."
 , "erlang:spawn :: (Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn :: (Atom, Atom, Atom, [Any]) -> Pid."
-, "erlang:spawn_link :: ((..) -> ..) -> Pid."
-, "erlang:spawn_link :: (Atom, (..) -> ..) -> Pid."
+, "erlang:spawn_link :: (UntypedFun) -> Pid."
+, "erlang:spawn_link :: (Atom, UntypedFun) -> Pid."
 , "erlang:spawn_link :: (Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn_link :: (Atom, Atom, Atom, [Any]) -> Pid."
 , "erlang:spawn_monitor :: (UntypedFun) -> {Pid, Reference}."
@@ -57,4 +64,6 @@
 , "lists:dropwhile :: ((A -> Boolean), [A]) -> [A]."
 
 , "string:chars :: (Char, Integer) -> [Char]."
+
+, "io:format :: ([Char], [Any]) -> ok."
 ].
