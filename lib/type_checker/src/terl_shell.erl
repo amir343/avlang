@@ -9,6 +9,7 @@
         , exit/0
         , h/0
         , help/0
+        , i/0
         , l/1
         , q/0
         ]).
@@ -183,7 +184,7 @@ is_forget_binding(_) ->
   false.
 
 shell_commands() ->
-  [c, clear, exit, help, h, l, q].
+  [c, clear, exit, help, h, i, l, q].
 
 map_shell_commands({call, L1, {atom, L2, Cmd}, Args} = Abs) ->
   case lists:member(Cmd, shell_commands()) of
@@ -219,11 +220,15 @@ help() ->
                  "f(Binding)     -- forget a binding\n"
                  "h()            -- an alias for help command\n"
                  "help()         -- print this help info\n"
+                 "i()            -- print process list\n"
                  "l(Mod)         -- load or reload a module\n"
                  "q()            -- quit the shell\n"
                  "exit()         -- an alias for q()\n"
                  "\n\n"
                >>).
+
+i() ->
+  shell_default:i().
 
 l(Mod) ->
   c:l(Mod).
@@ -272,5 +277,5 @@ generate_banner() ->
      ?GRN("   |    |_/ __ \\_  __ \\  | \\__  \\  /    \\  / ___\\") ++ "      |  Type-safe Erlang! \n" ++
      ?GRN("   |    |\\  ___/|  | \\/  |__/ __ \\|   |  \\/ /_/  >") ++ "     |  Source: " ++ ?BLU("https://github.com/amir343/terlang") ++ "\n" ++
      ?GRN("   |____| \\___  >__|  |____(____  /___|  /\\___  / ") ++ "     |\n"
-     ?GRN("              \\/                \\/     \\//_____/  ") ++ "     | v0.1" ++ "\n\n"
+     ?GRN("              \\/                \\/     \\//_____/  ") ++ "     |  v0.1" ++ "\n\n"
     ,[])].
