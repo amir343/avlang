@@ -1,62 +1,6 @@
 # Match at any level.
 
-# emacs
-*~
-lib/tools/emacs/*.elc
-# vim
-.*.sw[a-z]
-
-autom4te.cache
+ebin
 *.beam
-*.asn1db
-
-!/bootstrap/lib/compiler/ebin/*.beam
-!/bootstrap/lib/kernel/ebin/*.beam
-!/bootstrap/lib/stdlib/ebin/*.beam
-!/bootstrap/lib/parsetools/ebin/*.beam
-!/lib/*/test/*_SUITE_data/*.beam
-
-#
-# Generated source code files.
-#
-/bootstrap/lib/compiler/egen
-/bootstrap/lib/stdlib/egen
-
-# Compiler derivatives
-#
-# Do not use too creative wildcards.
-# Those might ignore files that should not be ignored.
-
-# Mac OS X
-a.out.dSYM/
-
-# Windows
-*.pdb
-tcltk85_win32_bin.tar.gz
-
-# Used by ic & orber & cos* applications.
-IDL-GENERATED
-
-# Used by applications that run javadoc (e.g. ic).
-JAVADOC-GENERATED
-
-# Anchored from $ERL_TOP
-/bin
-/config.log
-/config.status
-
-/bootstrap/target
-!/bootstrap/bin/*.boot
-
-/bootstrap/primary_compiler/
-
-# General patterns for applications in lib.
-#
-# Assume that all test/Emakefiles are generated.
-#
-# Any application with a checked-in test/Emakefile should
-# use a negative pattern in its own .gitignore.
-
-/lib/*/ebin/*.app
-/lib/*/ebin/*.appup
+ebin/*.beam
 

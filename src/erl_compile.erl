@@ -333,9 +333,9 @@ file_or_directory(Name) ->
 %% Makes an Erlang term given a string.
 
 make_term(Str) ->
-  case terl_scan:string(Str) of
+  case erl_scan:string(Str) of
     {ok, Tokens, _} ->
-	    case terl_parse:parse_term(Tokens ++ [{dot, 1}]) of
+	    case erl_parse:parse_term(Tokens ++ [{dot, 1}]) of
         {ok, Term} -> Term;
         {error, {_,_,Reason}} ->
           io:format(?STDERR, "~ts: ~ts~n", [Reason, Str]),

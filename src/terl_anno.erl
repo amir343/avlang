@@ -49,7 +49,7 @@
 -type annotation() :: {'file', filename()}
                     | {'generated', generated()}
                     | {'location', location()}
-                    | {'record', record()}
+                    | {'record', boolean()}
                     | {'text', string()}.
 
 -type anno() :: location() | [annotation(), ...].
@@ -60,7 +60,6 @@
 -type filename() :: file:filename_all().
 -type line() :: integer().
 -type location() :: line() | {line(), column()}.
--type record() :: boolean().
 -type text() :: string().
 
 -ifdef(DEBUG).
@@ -239,7 +238,7 @@ location(Anno) ->
             Location
     end.
 
--spec record(Anno) -> record() when
+-spec record(Anno) -> boolean() when
       Anno :: anno().
 
 record(Line) when ?ALINE(Line) ->
@@ -347,7 +346,7 @@ fix_line(Line, _OldLine) ->
     Line.
 
 -spec set_record(Record, Anno) -> Anno when
-      Record :: record(),
+      Record :: boolean(),
       Anno :: anno().
 
 set_record(Record, Anno) ->

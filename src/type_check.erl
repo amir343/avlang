@@ -50,7 +50,7 @@
 %%------------------------------------------------------------------------------
 
 -include("type_checker_state.hrl").
--include("../compiler/include/terl_compiler.hrl").
+-include("terl_compiler.hrl").
 -include("type_macros.hrl").
 
 %%------------------------------------------------------------------------------
@@ -276,7 +276,7 @@ count_undefined_global_scope(State=#state{}) ->
 %% TODO: This file is constructed manually but should be
 %% created as part of building type checker
 bootstrap_erlang_types() ->
-  PrivDir = code:lib_dir(type_checker, priv),
+  PrivDir = code:priv_dir(terlang),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "erlang_types.eterm")),
   ParsedSignature = [begin
                        try
@@ -325,7 +325,7 @@ substitute_type_alias(T, Aliases) ->
 %% if the found remote function is exported or not. `export_whitelist'
 %% contains the modules the we can skip this check for.
 export_whitelist() ->
-  PrivDir = code:lib_dir(type_checker, priv),
+  PrivDir = code:priv_dir(terlang),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "export_whitelist")),
   gb_sets:from_list(Term).
 
@@ -333,7 +333,7 @@ export_whitelist() ->
 
 %% @doc What are the types of Erlang function guards?
 erlang_guard_signature() ->
-  PrivDir = code:lib_dir(type_checker, priv),
+  PrivDir = code:priv_dir(terlang),
   {ok, [Term | _]} =
     file:consult(filename:join(PrivDir, "erlang_guards.eterm")),
   lists:foldl(fun(T, Dict) ->

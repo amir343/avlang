@@ -28,7 +28,7 @@
         ]).
 
 -include("erl_compile.hrl").
--include("include/terl_compiler.hrl").
+-include("terl_compiler.hrl").
 
 -import(lists, [member/2,reverse/1,reverse/2,keyfind/3,last/1,
                 map/2,flatmap/2,foreach/2,foldr/3]).
