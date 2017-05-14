@@ -12,46 +12,79 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+SRC     = src
+EBIN    = ebin
+INCLUDE = include
+ERLC    = erlc
+
+APP_DEF = terl.app
+
+ERLS  = $(notdir $(wildcard $(SRC)/*.erl))
+YRLS  = $(notdir $(wildcard $(SRC)/*.yrl))
+EBINS = $(ERLS:.erl=.beam) $(YRLS:.yrl=.beam)
+TARGET_FILES = $(addprefix $(EBIN)/, $(EBINS)) $(EBIN)/$(APP_DEF)
+
+ERLANG_TYPES = priv/erlang_types.eterm
+
+# ----------------------------------------------------
+# FLAGS
+# ----------------------------------------------------
+
+ifeq ($(NATIVE_LIBS_ENABLED),yes)
+	ERL_COMPILE_FLAGS += +native
+endif
+ERL_COMPILE_FLAGS += +inline +warn_unused_import -Werror -W -pa $(EBIN)
+
+# ----------------------------------------------------
+# Build Targets
+# ----------------------------------------------------
+
+$(EBIN)/%.beam: $(SRC)/%.erl
+	@mkdir -p $(EBIN)
+	$(ERLC) -I $(INCLUDE) -o $(EBIN) $(ERL_COMPILE_FLAGS) $<
+
+$(EBIN)/$(APP_DEF): $(SRC)/$(APP_DEF).src
+	cp $(SRC)/$(APP_DEF).src $(EBIN)/$(APP_DEF)
+
+%.erl: %.yrl
+	$(ERLC) -o $(SRC) $<
+
 .NOTPARALLEL:
 
-.PHONY: type_checker compiler all test
+.PHONY: all test compile clean
 
-TERL_ROOT = $(shell pwd)
+compile: $(TARGET_FILES)
 
-TYPE_CHECK=lib/type_checker
-COMPILER=lib/compiler
-
-compiler:
-	cd lib/compiler && \
-	  TERL_ROOT=$(TERL_ROOT) \
-		$(MAKE) compile BUILD_ALL=true
-
-type_checker:
-	cd lib/type_checker && \
-	  TERL_ROOT=$(TERL_ROOT) \
-		$(MAKE) compile BUILD_ALL=true
-
-clean-type_checker:
-	cd lib/type_checker && \
-	  TERL_ROOT=$(TERL_ROOT) \
-		$(MAKE) clean BUILD_ALL=true
-
-clean-compiler:
-	cd lib/compiler && \
-	  TERL_ROOT=$(TERL_ROOT) \
-		$(MAKE) clean BUILD_ALL=true
-
-clean: clean-type_checker clean-compiler
+clean:
+	rm -f $(TARGET_FILES)
 
 test:
-	@bootstrap/bin/erlc \
-		-pa $(TYPE_CHECK)/ebin -o $(TYPE_CHECK)/ebin \
-		$(TYPE_CHECK)/test/type_check_SUITE.erl \
-		$(TYPE_CHECK)/test/run_test.erl
+	./terl test
 
-	@bootstrap/bin/erl \
-		-pa $(TYPE_CHECK)/ebin \
-		-pa $(COMPILER)/ebin -noshell \
-		-s run_test run
+all: compile test
 
-all: compiler type_checker test
+# ----------------------------------------------------
+# Special Build Targets
+# ----------------------------------------------------
+
+# Inlining erl_lint is slow and has no benefit.
+$(EBIN)/terl_lint.beam: $(SRC)/terl_lint.erl
+	$(ERLC) $(subst +inline,,$(ERL_COMPILE_FLAGS)) -I$(SRC) -o$(EBIN) $<
+
+# ----------------------------------------------------
+# Dependancy
+# ----------------------------------------------------
+
+$(EBIN)/terl_any.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_atom.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_binary.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_boolean.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_char.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_float.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_integer.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_none.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_number.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_pid.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_port.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_reference.beam: $(EBIN)/type_interface.beam
+$(EBIN)/terl_string.beam: $(EBIN)/type_interface.beam

@@ -1234,15 +1234,12 @@ type_preop_prec('#') -> {700,800}.
 %%% longer apply. To get all present attributes as a property list
 %%% get_attributes() should be used.
 
--compile({nowarn_deprecated_function,{terl_scan,set_attribute,3}}).
 set_line(L, F) ->
   terl_scan:set_attribute(line, L, F).
 
--compile({nowarn_deprecated_function,{terl_scan,attributes_info,2}}).
 get_attribute(L, Name) ->
   terl_scan:attributes_info(L, Name).
 
--compile({nowarn_deprecated_function,{terl_scan,attributes_info,1}}).
 get_attributes(L) ->
   terl_scan:attributes_info(L).
 

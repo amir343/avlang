@@ -13,7 +13,7 @@
         , test_type_syntax/0
        ]).
 
--include("../../compiler/include/terl_compiler.hrl").
+-include("../src/terl_compiler.hrl").
 
 all() ->
   [ test_binary
@@ -84,7 +84,7 @@ build_compile_rec(FileName) ->
   #compile{ifile = FileName, code = abstract_forms_for_module(FileName)}.
 
 abstract_forms_for_module(FileName) ->
-  TestDir = code:lib_dir(type_checker, test),
+  TestDir = code:lib_dir(terlang, test),
   DataDir = filename:join(TestDir, "type_check_SUITE_data"),
   Mod = filename:join(DataDir, FileName),
   {ok, AbsForm} = terl_epp:parse_file(Mod, [], []),
