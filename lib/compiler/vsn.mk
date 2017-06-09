@@ -1,1 +1,0 @@
-COMPILER_VSN = 6.0.3

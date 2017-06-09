@@ -1,0 +1,16 @@
+%% -*- Erlang -*-
+[
+
+  "is_tuple :: ({}) -> Boolean."
+, "is_integer :: (Integer) -> Boolean."
+, "is_list :: ([Any]) -> Boolean."
+, "is_atom :: (Atom) -> Boolean."
+, "is_binary :: (Binary) -> Boolean."
+, "is_boolean :: (Boolean) -> Boolean."
+, "is_float :: (Float) -> Boolean."
+, "is_pid :: (Pid) -> Boolean."
+, "is_number :: (Number) -> Boolean."
+, "is_port :: (Port) -> Boolean."
+, "is_reference :: (Reference) -> Boolean."
+, "is_function :: ((..) -> ..) -> Boolean."
+].
