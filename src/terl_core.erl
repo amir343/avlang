@@ -256,7 +256,7 @@ form({attribute,_,_,_}=F, {Fs,As,Ws,File}, _Opts) ->
   {Fs,[attribute(F)|As],Ws,File}.
 
 attribute(Attribute) ->
-  Fun = fun(A) ->  [erl_anno:location(A)] end,
+  Fun = fun(A) ->  [terl_anno:location(A)] end,
   {attribute,Line,Name,Val} = terl_parse:map_anno(Fun, Attribute),
   {#c_literal{val=Name, anno=Line}, #c_literal{val=Val, anno=Line}}.
 
@@ -2400,7 +2400,7 @@ bitstr_vars(Segs, Vs) ->
 
 record_anno(L, St) ->
   case
-    erl_anno:record(L) andalso member(dialyzer, St#core.opts)
+    terl_anno:record(L) andalso member(dialyzer, St#core.opts)
   of
     true ->
       [record | lineno_anno(L, St)];
@@ -2414,8 +2414,8 @@ full_anno(L, #core{wanted=true}=St) ->
   lineno_anno(L, St).
 
 lineno_anno(L, St) ->
-  Line = erl_anno:line(L),
-  Generated = erl_anno:generated(L),
+  Line = terl_anno:line(L),
+  Generated = terl_anno:generated(L),
   CompilerGenerated = [compiler_generated || Generated],
   [Line] ++ St#core.file ++ CompilerGenerated.
 
@@ -2426,7 +2426,7 @@ get_lineno_anno(Ce) ->
   end.
 
 no_compiler_warning(Anno) ->
-  erl_anno:set_generated(true, Anno).
+  terl_anno:set_generated(true, Anno).
 
 %%
 %% The following three functions are used both with cerl:cerl() and with i()'s
@@ -2471,9 +2471,9 @@ format_error(badmap) ->
   "map construction will fail because of a type mismatch".
 
 add_warning(Anno, Term, #core{ws=Ws,file=[{file,File}]}=St) ->
-  case erl_anno:generated(Anno) of
+  case terl_anno:generated(Anno) of
     false ->
-      St#core{ws=[{File,[{erl_anno:location(Anno),?MODULE,Term}]}|Ws]};
+      St#core{ws=[{File,[{terl_anno:location(Anno),?MODULE,Term}]}|Ws]};
     true ->
       St
   end.

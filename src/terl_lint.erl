@@ -77,7 +77,7 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
 %%-define(DEBUGF(X,Y), io:format(X, Y)).
 -define(DEBUGF(X,Y), void).
 
--type line() :: erl_anno:line().     % a convenient alias
+-type line() :: terl_anno:line().     % a convenient alias
 -type fa()   :: {atom(), arity()}.   % function+arity
 -type ta()   :: {atom(), arity()}.   % type+arity
 
@@ -112,8 +112,8 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
                defined=gb_sets:empty()          %Defined fuctions
                :: gb_sets:set(fa()),
                on_load=[] :: [fa()],		%On-load function
-               on_load_line=erl_anno:new(0)	%Line for on_load
-               :: erl_anno:anno(),
+               on_load_line=terl_anno:new(0)	%Line for on_load
+               :: terl_anno:anno(),
                clashes=[],			%Exported functions named as BIFs
                not_deprecated=[],               %Not considered deprecated
                func=[],                         %Current function
@@ -142,7 +142,7 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
 
 -type lint_state() :: #lint{}.
 -type error_description() :: term().
--type error_info() :: {erl_anno:line(), module(), error_description()}.
+-type error_info() :: {terl_anno:line(), module(), error_description()}.
 
 %% format_error(Error)
 %%  Return a string describing the error.
