@@ -63,12 +63,12 @@ files(Files) when is_list(Files) ->
 
 -spec file(module() | file:filename(), [option()] | option()) -> comp_ret().
 file(File, Opts) when is_list(Opts) ->
-  do_compile({files, [File]}, Opts++env_default_opts());
+  do_compile({files, [File]}, Opts ++ env_default_opts() ++ ?DEFAULT_OPTIONS);
 file(File, Opt) ->
   file(File, [Opt|?DEFAULT_OPTIONS]).
 
 files(Files, Opts) when is_list(Files), is_list(Opts) ->
-  do_compile({files, Files}, Opts ++ env_default_opts());
+  do_compile({files, Files}, Opts ++ env_default_opts() ++ ?DEFAULT_OPTIONS);
 files(Files, Opt) when is_list(Files) ->
   files(Files, [Opt|?DEFAULT_OPTIONS]).
 
