@@ -13,7 +13,7 @@
 %% limitations under the License.
 
 
-%% Current abstract forms from terl_parser:
+%% Current abstract forms from avl_parser:
 %%
 %% {fun_sig, Line, Name, Type}
 %% {fun_type, Is, O}
@@ -21,14 +21,14 @@
 %% {type_alias, Line, Name, Type}
 %% {type_cons, Line, Name, Params, Type}
 %% {type_instance, Name, Params}
-%% {terl_type_ref, Module, Name}
+%% {avl_type_ref, Module, Name}
 %% {union_type, Types}
 %% {record_type, Name, Types}
 %% {list_type, Type}
 %% {tuple_type, Types}
-%% {terl_type, Type}
-%% {terl_user_defined, Type}
-%% {terl_generic_type, Type}
+%% {avl_type, Type}
+%% {avl_user_defined, Type}
+%% {avl_generic_type, Type}
 %%
 
 
@@ -50,7 +50,7 @@
 %%------------------------------------------------------------------------------
 
 -include("type_checker_state.hrl").
--include("terl_compiler.hrl").
+-include("avl_compiler.hrl").
 -include("type_macros.hrl").
 
 %%------------------------------------------------------------------------------
@@ -187,7 +187,7 @@ type_check_loop(PassN, State=#state{}, PUndefs) ->
 %%_-----------------------------------------------------------------------------
 
 %% This function is used for type checking some expressions outside of any
-%% module scope. It is mainly used from `terl_shell' and it considers already
+%% module scope. It is mainly used from `avl_shell' and it considers already
 %% existing `TypeBindings'.
 type_check_exprs(Exprs, TypeBindings) when is_list(Exprs) ->
   LsName = {anonym_ls, length(Exprs)},
@@ -276,12 +276,12 @@ count_undefined_global_scope(State=#state{}) ->
 %% TODO: This file is constructed manually but should be
 %% created as part of building type checker
 bootstrap_erlang_types() ->
-  PrivDir = code:priv_dir(terlang),
+  PrivDir = code:priv_dir(avlang),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "erlang_types.eterm")),
   ParsedSignature = [begin
                        try
-                         {ok, Tokens, _} = terl_scan:string(T),
-                         {ok, ParsedTokens} = terl_parse:parse(Tokens),
+                         {ok, Tokens, _} = avl_scan:string(T),
+                         {ok, ParsedTokens} = avl_parse:parse(Tokens),
                          ParsedTokens
                        catch
                            _:E ->
@@ -309,7 +309,7 @@ substitute_type_alias(T, Aliases) ->
   type_internal:type_map(
     T, fun(Type) ->
            case Type of
-             {terl_generic_type, N} ->
+             {avl_generic_type, N} ->
                case dict:find(N, Aliases) of
                  {ok, A} ->
                    A;
@@ -325,7 +325,7 @@ substitute_type_alias(T, Aliases) ->
 %% if the found remote function is exported or not. `export_whitelist'
 %% contains the modules the we can skip this check for.
 export_whitelist() ->
-  PrivDir = code:priv_dir(terlang),
+  PrivDir = code:priv_dir(avlang),
   {ok, [Term | _]} = file:consult(filename:join(PrivDir, "export_whitelist")),
   gb_sets:from_list(Term).
 
@@ -333,13 +333,13 @@ export_whitelist() ->
 
 %% @doc What are the types of Erlang function guards?
 erlang_guard_signature() ->
-  PrivDir = code:priv_dir(terlang),
+  PrivDir = code:priv_dir(avlang),
   {ok, [Term | _]} =
     file:consult(filename:join(PrivDir, "erlang_guards.eterm")),
   lists:foldl(fun(T, Dict) ->
                   try
                     {ok, Tokens, _} = erl_scan:string(T),
-                    {ok, {fun_sig, _, N, _Ts} = FT} = terl_parse:parse(Tokens),
+                    {ok, {fun_sig, _, N, _Ts} = FT} = avl_parse:parse(Tokens),
                     dict:append(N, FT, Dict)
                   catch
                     _:E ->
@@ -651,7 +651,7 @@ check_consistency_type_cons(State=#state{}) ->
   TC = state_dl:type_cons(State),
   lists:foldl(fun({_, E}, St) ->
                   St1 = check_consistency_type_cons_lhs_rhs(E, St),
-                  no_terl_type_used_lhs(E, St1)
+                  no_avl_type_used_lhs(E, St1)
               end, State, dict:to_list(TC)).
 
 %% Check if that all defined generic type parameters in the left hand side of
@@ -708,9 +708,9 @@ check_consistency_fun_sig(State=#state{}, {fun_sig, L, N, Cls}) ->
 
 %%_-----------------------------------------------------------------------------
 
-no_terl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
+no_avl_type_used_lhs({type_cons, L, _N, Is, _O}, State=#state{}) ->
   TI0 = lists:flatten([type_internal:type_terminals(I) || I <- Is]),
-  TI1 = lists:filter(fun({Tag, _}) -> Tag =/= terl_generic_type end, TI0),
+  TI1 = lists:filter(fun({Tag, _}) -> Tag =/= avl_generic_type end, TI0),
   case length(TI1) of
     0 ->
       State;
@@ -869,9 +869,9 @@ calc_match_score(Args1, Args2) ->
                   Acc + arg_match(A1, A2)
               end, 0, Args).
 
-arg_match({terl_atom_type, T}, {atom, _, T}) ->
+arg_match({avl_atom_type, T}, {atom, _, T}) ->
   1;
-arg_match({terl_tuple, Ts1}, {terl_tuple, Ts2}) ->
+arg_match({avl_tuple, Ts1}, {avl_tuple, Ts2}) ->
   case length(Ts1) =:= length(Ts2) of
     true -> 1 + arg_match(Ts1, Ts2);
     false -> 0
@@ -881,7 +881,7 @@ arg_match([_ | _] = L1, [_ | _] = L2) ->
     true -> lists:sum([arg_match(A, B) || {A, B} <- lists:zip(L1, L2)]);
     false -> 0
   end;
-arg_match({terl_list, T1}, {terl_list, T2}) ->
+arg_match({avl_list, T1}, {avl_list, T2}) ->
   arg_match(T1, T2);
 arg_match(T, T) ->
   1;
@@ -937,16 +937,14 @@ validate_fun_type0(NAL, FType, S=#state{}) ->
 %%_-----------------------------------------------------------------------------
 
 type_check_clause(FSig, Cls, S=#state{}) ->
-  FP = state_dl:first_pass(S),
   LS = state_dl:local(S),
-  case FP of
+  case state_dl:first_pass(S) of
     true ->
       {Res, S1} = type_check_clause0(FSig, Cls, S),
       S2 = update_undefined(S1),
       {Res, S2};
     false ->
-      UnDefs0 = state_dl:last_nr_undefined(LS),
-      case UnDefs0 of
+      case state_dl:last_nr_undefined(LS) of
         0 ->
           {state_dl:type(LS), S};
         _ ->
@@ -1163,7 +1161,7 @@ type_of({char, _, _}, S) ->
   {?CHAR, S};
 
 type_of({atom, _, T}, S) ->
-  {{terl_atom_type, T}, S};
+  {{avl_atom_type, T}, S};
 
 type_of({string, _, _}, S) ->
   {type_internal:type_alias(?STRING), S};
@@ -1462,7 +1460,7 @@ type_of({bin, _,  BinSegments}, State0) ->
 
 type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, State0) ->
   {TSL, State1} =
-    case terl_binary:type_specifier_list(TSLs) of
+    case avl_binary:type_specifier_list(TSLs) of
       [T] -> {T, State0};
       Ts   ->
         {undefined,

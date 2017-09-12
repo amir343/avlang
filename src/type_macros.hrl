@@ -12,27 +12,27 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--define(ANY,       {terl_type, 'Any'}).
--define(ATOM,      {terl_type, 'Atom'}).
--define(BOOLEAN,   {terl_type, 'Boolean'}).
--define(BINARY,    {terl_type, 'Binary'}).
--define(CHAR,      {terl_type, 'Char'}).
--define(FLOAT,     {terl_type, 'Float'}).
--define(INTEGER,   {terl_type, 'Integer'}).
--define(PID,       {terl_type, 'Pid'}).
--define(TERM,      {terl_type, 'Term'}).
--define(STRING,    {terl_type, 'String'}).
+-define(ANY,       {avl_type, 'Any'}).
+-define(ATOM,      {avl_type, 'Atom'}).
+-define(BOOLEAN,   {avl_type, 'Boolean'}).
+-define(BINARY,    {avl_type, 'Binary'}).
+-define(CHAR,      {avl_type, 'Char'}).
+-define(FLOAT,     {avl_type, 'Float'}).
+-define(INTEGER,   {avl_type, 'Integer'}).
+-define(PID,       {avl_type, 'Pid'}).
+-define(TERM,      {avl_type, 'Term'}).
+-define(STRING,    {avl_type, 'String'}).
 -define(INVALID,   type_internal:invalid_operator()).
 -define(UNDEFINED, undefined).
 
 
--define(ANY_MOD,     terl_any).
--define(BOOLEAN_MOD, terl_boolean).
--define(BINARY_MOD,  terl_binary).
--define(CHAR_MOD,    terl_char).
--define(FLOAT_MOD,   terl_float).
--define(INTEGER_MOD, terl_integer).
--define(LIST_MOD,    terl_list).
--define(PID_MOD,     terl_pid).
--define(STRING_MOD,  terl_string).
--define(UNION_MOD,   terl_union).
+-define(ANY_MOD,     avl_any).
+-define(BOOLEAN_MOD, avl_boolean).
+-define(BINARY_MOD,  avl_binary).
+-define(CHAR_MOD,    avl_char).
+-define(FLOAT_MOD,   avl_float).
+-define(INTEGER_MOD, avl_integer).
+-define(LIST_MOD,    avl_list).
+-define(PID_MOD,     avl_pid).
+-define(STRING_MOD,  avl_string).
+-define(UNION_MOD,   avl_union).

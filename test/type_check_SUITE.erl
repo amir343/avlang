@@ -13,7 +13,7 @@
         , test_type_syntax/0
        ]).
 
--include("../src/terl_compiler.hrl").
+-include("../src/avl_compiler.hrl").
 
 all() ->
   [ test_binary
@@ -29,52 +29,52 @@ all() ->
 
 
 test_record() ->
-  FileName = "record_test.erl",
+  FileName = "record_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_binary() ->
-  FileName = "binary_test.erl",
+  FileName = "binary_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_misc() ->
-  FileName = "misc_test.erl",
+  FileName = "misc_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_type_syntax() ->
-  FileName = "type_syntax_test.erl",
+  FileName = "type_syntax_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_function_pointer() ->
-  FileName = "function_pointer_test.erl",
+  FileName = "function_pointer_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_char() ->
-  FileName = "char_test.erl",
+  FileName = "char_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} = type_check:module(CompRec).
 
 test_generic_types() ->
-  FileName = "generic_types.erl",
+  FileName = "generic_types.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} =
     print_result(type_check:module(CompRec)).
 
 test_multiple_input() ->
-  FileName1 = "function_pointer_test.erl",
-  FileName2 = "misc_test.erl",
+  FileName1 = "function_pointer_test.avl",
+  FileName2 = "misc_test.avl",
   CompRec1 = build_compile_rec(FileName1),
   CompRec2 = build_compile_rec(FileName2),
   {ok, [{[], [], _}, {[], [], _}]} =
     type_check:modules([CompRec1, CompRec2]).
 
 test_remote_call() ->
-  FileName1 = "remote_call_1.erl",
-  FileName2 = "remote_call_2.erl",
+  FileName1 = "remote_call_1.avl",
+  FileName2 = "remote_call_2.avl",
   CompRec1 = build_compile_rec(FileName1),
   CompRec2 = build_compile_rec(FileName2),
   {ok, [{[], [], _}, {[], [], _}]} =
@@ -84,10 +84,10 @@ build_compile_rec(FileName) ->
   #compile{ifile = FileName, code = abstract_forms_for_module(FileName)}.
 
 abstract_forms_for_module(FileName) ->
-  TestDir = code:lib_dir(terlang, test),
+  TestDir = code:lib_dir(avlang, test),
   DataDir = filename:join(TestDir, "type_check_SUITE_data"),
   Mod = filename:join(DataDir, FileName),
-  {ok, AbsForm} = terl_epp:parse_file(Mod, [], []),
+  {ok, AbsForm} = avl_epp:parse_file(Mod, [], []),
   AbsForm.
 
 print_result({ok, [{[], [], _}]} = Res) ->

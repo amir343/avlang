@@ -27,18 +27,18 @@ built_in_types_info() ->
   [{M:name(), M:lub(), M:abs_form()} || M <- built_in_modules()].
 
 built_in_modules() ->
-  [ terl_any
-  , terl_atom
-  , terl_binary
-  , terl_boolean
-  , terl_float
-  , terl_integer
-  , terl_none
-  , terl_number
-  , terl_reference
-  , terl_string
-  , terl_pid
-  , terl_port
+  [ avl_any
+  , avl_atom
+  , avl_binary
+  , avl_boolean
+  , avl_float
+  , avl_integer
+  , avl_none
+  , avl_number
+  , avl_reference
+  , avl_string
+  , avl_pid
+  , avl_port
   ].
 
 stdlib_types() ->

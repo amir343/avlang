@@ -23,9 +23,9 @@
 , "tl :: ([A]) -> [A]."
 
 , "c:l :: (Atom) -> {module, Atom} | {error, Atom}."
-, "terl_shell:l :: (Atom) -> {module, Atom} | {error, Atom}."
+, "avl_shell:l :: (Atom) -> {module, Atom} | {error, Atom}."
 , "shell_defaults:i :: () -> ok."
-, "terl_shell:i :: () -> ok."
+, "avl_shell:i :: () -> ok."
 
 , "spawn :: UntypedFun -> Pid."
 , "spawn :: (Atom, UntypedFun) -> Pid."

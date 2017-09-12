@@ -17,7 +17,7 @@ EBIN    = ebin
 INCLUDE = include
 ERLC    = erlc
 
-APP_DEF = terl.app
+APP_DEF = avl.app
 
 ERLS  = $(notdir $(wildcard $(SRC)/*.erl))
 YRLS  = $(notdir $(wildcard $(SRC)/*.yrl))
@@ -59,7 +59,7 @@ clean:
 	rm -f $(TARGET_FILES)
 
 test:
-	./terl test
+	./avl test
 
 all: compile test
 
@@ -68,23 +68,23 @@ all: compile test
 # ----------------------------------------------------
 
 # Inlining erl_lint is slow and has no benefit.
-$(EBIN)/terl_lint.beam: $(SRC)/terl_lint.erl
+$(EBIN)/avl_lint.beam: $(SRC)/avl_lint.erl
 	$(ERLC) $(subst +inline,,$(ERL_COMPILE_FLAGS)) -I$(SRC) -o$(EBIN) $<
 
 # ----------------------------------------------------
 # Dependancy
 # ----------------------------------------------------
 
-$(EBIN)/terl_any.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_atom.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_binary.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_boolean.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_char.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_float.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_integer.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_none.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_number.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_pid.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_port.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_reference.beam: $(EBIN)/type_interface.beam
-$(EBIN)/terl_string.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_any.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_atom.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_binary.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_boolean.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_char.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_float.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_integer.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_none.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_number.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_pid.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_port.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_reference.beam: $(EBIN)/type_interface.beam
+$(EBIN)/avl_string.beam: $(EBIN)/type_interface.beam
