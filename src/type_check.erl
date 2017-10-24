@@ -199,7 +199,7 @@ type_check_exprs(Exprs, TypeBindings) when is_list(Exprs) ->
   St5 = import_type_bindings(St4, TypeBindings),
   {T, St6} =
     lists:foldl(fun(Expr, {_, S0}) ->
-                    type_check_expr(Expr, S0)
+                    type_of(Expr, S0)
                 end, {nil, St5}, Exprs),
   NTypeBindings = export_type_bindings_from_local_scope(St6),
   Errors = state_dl:errors(St6),
@@ -1022,7 +1022,7 @@ type_check_clause_guard(Gs, State0=#state{}) ->
   State1 = state_dl:fun_lookup(State0, guard_fun_lookup_priorities()),
   GSeqs  = [G1 || G0 <- Gs, G1 <- G0],
   State2 = lists:foldl(fun(G, S0) ->
-                       {TG, S1} = type_check_expr(G, S0),
+                       {TG, S1} = type_of(G, S0),
                        assert_guard_type(G, TG, S1)
                    end, State1, GSeqs),
   state_dl:fun_lookup(State2, nil).
@@ -1033,7 +1033,7 @@ type_check_clause_guard(Gs, State0=#state{}) ->
 type_check_clause1({clause, _L, Args, _G, Exprs}, State0) ->
   {TOut, State1} =
     lists:foldl(fun(Expr, {_, S0}) ->
-                    {T, S1} = type_check_expr(Expr, S0),
+                    {T, S1} = type_of(Expr, S0),
                     LineNum = element(2, Expr),
                     update_local(S1, "Expression", LineNum, T)
                 end, {nil, State0}, Exprs),
@@ -1041,44 +1041,6 @@ type_check_clause1({clause, _L, Args, _G, Exprs}, State0) ->
   ClauseType = {fun_type, TIn, TOut},
   State2 = state_dl:update_type_in_local_scope(ClauseType, State1),
   {ClauseType, check_local_scope(State2)}.
-
-%%_-----------------------------------------------------------------------------
-
-type_check_expr({match, L, {record, _, N, _} = R, RHS}, State0) ->
-  {TRHS, State1} = type_of(RHS, State0),
-  VarTypes       = type_internal:eliminate(R, {record_type, N}, State1),
-  State2         = update_local(State1, VarTypes),
-  State3         = assert_type_equality(RHS, L, {record_type, N}, TRHS, State2),
-  {TRHS, State3};
-
-type_check_expr({match, _L, LHS, {'fun', _, _} = RHS}, State0) ->
-  {TLHS, State1}     = type_of(LHS, State0),
-  State2             = check_for_fun_type(TLHS, State1),
-  {Inferred, State3} = type_of(RHS, State2),
-  State4             = reset_last_ftype(State3),
-  VarTypes           = type_internal:eliminate(LHS, Inferred, State4),
-  State5             = update_local(State4, VarTypes),
-  State6             = type_of_lhs(LHS, State5),
-  {Inferred, State6};
-
-type_check_expr({match, _L, LHS, RHS}, State0) ->
-  {Inferred, State1} = type_of(RHS, State0),
-  VarTypes           = type_internal:eliminate(LHS, Inferred, State1),
-  State2             = update_local(State1, VarTypes),
-  State3             = type_of_lhs(LHS, State2),
-  {Inferred, State3};
-
-%% When there is type declaration
-type_check_expr({match, L, {var, _, Var} = V, Type, RHS}, State0) ->
-  State1             = check_for_fun_type(Type, State0),
-  {Inferred, State2} = type_of(RHS, State1),
-  State3             = reset_last_ftype(State2),
-  State4             = assert_type_equality(Var, L, Type, Inferred, State3),
-  {_, State5}        = update_local(State4, V, Inferred),
-  {Inferred, State5};
-
-type_check_expr(E, State0) ->
-  type_of(E, State0).
 
 %%_-----------------------------------------------------------------------------
 
@@ -1493,8 +1455,38 @@ type_of({record_field, L, V, N, {atom,_, F}}, State0=#state{}) ->
   TF           = type_internal:find_record_field_type(F, TR),
   {TF, State4};
 
-type_of({match, _, _, _} = M, State0) ->
-  type_check_expr(M, State0);
+type_of({match, L, {record, _, N, _} = R, RHS}, State0) ->
+  {TRHS, State1} = type_of(RHS, State0),
+  VarTypes       = type_internal:eliminate(R, {record_type, N}, State1),
+  State2         = update_local(State1, VarTypes),
+  State3         = assert_type_equality(RHS, L, {record_type, N}, TRHS, State2),
+  {TRHS, State3};
+
+type_of({match, _L, LHS, {'fun', _, _} = RHS}, State0) ->
+  {TLHS, State1}     = type_of(LHS, State0),
+  State2             = check_for_fun_type(TLHS, State1),
+  {Inferred, State3} = type_of(RHS, State2),
+  State4             = reset_last_ftype(State3),
+  VarTypes           = type_internal:eliminate(LHS, Inferred, State4),
+  State5             = update_local(State4, VarTypes),
+  State6             = type_of_lhs(LHS, State5),
+  {Inferred, State6};
+
+type_of({match, _L, LHS, RHS}, State0) ->
+  {Inferred, State1} = type_of(RHS, State0),
+  VarTypes           = type_internal:eliminate(LHS, Inferred, State1),
+  State2             = update_local(State1, VarTypes),
+  State3             = type_of_lhs(LHS, State2),
+  {Inferred, State3};
+
+%% When there is type declaration
+type_of({match, L, {var, _, Var} = V, Type, RHS}, State0) ->
+  State1             = check_for_fun_type(Type, State0),
+  {Inferred, State2} = type_of(RHS, State1),
+  State3             = reset_last_ftype(State2),
+  State4             = assert_type_equality(Var, L, Type, Inferred, State3),
+  {_, State5}        = update_local(State4, V, Inferred),
+  {Inferred, State5};
 
 type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
@@ -1624,7 +1616,7 @@ type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
 
   {TLastCl, State2} =
     lists:foldl(fun(Expr, {_, SS0}) ->
-                    {T, S1} = type_check_expr(Expr, SS0),
+                    {T, S1} = type_of(Expr, SS0),
                     LineNum = element(2, Expr),
                     update_local(S1, "Expression", LineNum, T)
                 end, {nil, State1}, Cls),
@@ -1643,7 +1635,7 @@ type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
 
   {TLastCl, State4} =
     lists:foldl(fun(Expr, {_, SS0}) ->
-                    {T, S1} = type_check_expr(Expr, SS0),
+                    {T, S1} = type_of(Expr, SS0),
                     LineNum = element(2, Expr),
                     update_local(S1, "Expression", LineNum, T)
                 end, {nil, State3}, Cls),
