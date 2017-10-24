@@ -317,10 +317,10 @@ list_to_string([H|[_] = T], Res) ->
 pp_type(T) ->
   ?GRN(p_type(T)).
 
-p_type({terl_type, T}) ->
+p_type({avl_type, T}) ->
   io_lib:format("~s", [T]);
 
-p_type({terl_generic_type, T}) ->
+p_type({avl_generic_type, T}) ->
   io_lib:format("'~s'", [T]);
 
 p_type({list_type, T}) ->
@@ -341,7 +341,7 @@ p_type({union_type, Ts}) ->
   TEs = [p_type(T) || T <- Ts],
   io_lib:format("~s", [string:join(TEs, " | ")]);
 
-p_type({terl_atom_type, T}) ->
+p_type({avl_atom_type, T}) ->
   io_lib:format("~s", [T]);
 
 p_type({record_type, N}) ->

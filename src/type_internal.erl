@@ -66,7 +66,7 @@ module_of({union_type, _}) ->
   ?UNION_MOD;
 module_of({list_type, _}) ->
   ?LIST_MOD;
-module_of({terl_atom_type, _}) ->
+module_of({avl_atom_type, _}) ->
   ?MODULE;
 module_of(W) ->
   io:format("Module_of is not defined for ~p~n", [W]),
@@ -81,9 +81,9 @@ dispatch(undefined, Op, T) ->
   dispatch(T, Op, undefined);
 
 dispatch({list_type, T1}, Op, {union_type, Ts}) ->
-  [terl_list:op(Op, T1, T2) || T2 <- Ts];
+  [avl_list:op(Op, T1, T2) || T2 <- Ts];
 dispatch({list_type, T1}, Op, T2) ->
-  terl_list:op(Op, T1, T2);
+  avl_list:op(Op, T1, T2);
 
 dispatch({union_type, Ts}, Op, T) ->
   dispatch(T, Op, {union_type, Ts});
@@ -123,7 +123,7 @@ lub(T, nothing) ->
 lub(nothing, T) ->
   T;
 lub({list_type, T1}, T2) ->
-  terl_list:lub(T1, T2);
+  avl_list:lub(T1, T2);
 lub(undefined, _) ->
   undefined;
 lub(_, undefined) ->
@@ -142,11 +142,11 @@ lub({fun_type, _, _} = T1, {fun_type, _, _} = T2) ->
   end;
 lub({fun_type, _, _}, _) ->
   ?ANY;
-lub({terl_atom_type, _}, {terl_atom_type, _}) ->
+lub({avl_atom_type, _}, {avl_atom_type, _}) ->
   ?ATOM;
-lub(?ATOM, {terl_atom_type, _}) ->
+lub(?ATOM, {avl_atom_type, _}) ->
   ?ATOM;
-lub({terl_atom_type, _}, ?ATOM) ->
+lub({avl_atom_type, _}, ?ATOM) ->
   ?ATOM;
 lub(T1, T2) ->
   M = module_of(T1),
@@ -156,8 +156,8 @@ lub(T1, T2) ->
 
 type_tag(Type) ->
   case built_in(Type) of
-    true  -> {terl_type, Type};
-    false -> {terl_generic_type, Type}
+    true  -> {avl_type, Type};
+    false -> {avl_generic_type, Type}
   end.
 
 built_in('Any')         -> true;
@@ -209,9 +209,9 @@ type_equivalent({tuple_type, Ts1}, {tuple_type, Ts2}) ->
   (length(Ts1) =:= length(Ts2)) andalso
     lists:all(fun(E) -> E =:= true end,
               [type_equivalent(T1, T2) || {T1, T2} <- lists:zip(Ts1, Ts2)]);
-type_equivalent({terl_atom_type, _}, ?ATOM) ->
+type_equivalent({avl_atom_type, _}, ?ATOM) ->
   true;
-type_equivalent(?ATOM, {terl_atom_type, _}) ->
+type_equivalent(?ATOM, {avl_atom_type, _}) ->
   true;
 type_equivalent(?ANY, _) ->
   true;
@@ -265,7 +265,7 @@ sub_type_of({fun_type, Is1, O1}, {fun_type, Is2, O2}) ->
   lists:all(fun({I1, I2}) ->
                 sub_type_of(I1, I2)
             end, lists:zip(Is1, Is2)) andalso
-  sub_type_of(O2, O1);
+    sub_type_of(O2, O1);
 sub_type_of({fun_type, _, _}, {untyped_fun, nil, nil}) ->
   true;
 sub_type_of({union_type, Ts1}, {union_type, _} = UT2) ->
@@ -282,13 +282,13 @@ sub_type_of(_, ?TERM) ->
   true;
 sub_type_of(_, ?ANY) ->
   true;
-sub_type_of(_, {terl_generic_type, _}) ->
+sub_type_of(_, {avl_generic_type, _}) ->
   true;
-sub_type_of({terl_atom_type, _}, ?ATOM) ->
+sub_type_of({avl_atom_type, _}, ?ATOM) ->
   true;
-sub_type_of({terl_atom_type, true}, ?BOOLEAN) ->
+sub_type_of({avl_atom_type, true}, ?BOOLEAN) ->
   true;
-sub_type_of({terl_atom_type, false}, ?BOOLEAN) ->
+sub_type_of({avl_atom_type, false}, ?BOOLEAN) ->
   true;
 sub_type_of(T, T) ->
   true;
@@ -333,11 +333,21 @@ eliminate({tuple, L, Es}, {tuple_type, Ts} = T, Rs0, State) ->
 eliminate({tuple, _L, Es}, _, Rs0, _) ->
   lists:flatten([eliminate(E, undefined, []) || E <- Es]) ++ Rs0;
 eliminate({op, _, '++', {string, _, _}, {var, _, _} = V},
-       ?STRING = T, Rs, State) ->
+          ?STRING = T, Rs, State) ->
   eliminate(V, T, Rs, State);
 eliminate({record, _, _, _} = R, _T, Rs, State) ->
   Rs ++ eliminate_record_type(R, State);
-eliminate(_, _, W, _) ->
+eliminate({match, _, L, R}, T, Rs, State) ->
+  Rs ++ eliminate(L, T, Rs, State) ++ eliminate(R, T, Rs, State);
+eliminate({atom, _, _}, _, Rs, _) ->
+  Rs;
+eliminate({nil, _}, _, Rs, _) ->
+  Rs;
+eliminate({bin, _, _}, _, Rs, _) ->
+  Rs;
+eliminate(V, T, W, _) ->
+  io:format("Investigate this and remove this log line (V: ~p, T: ~p): ~p"
+           , [V, T, erlang:get_stacktrace()]),
   W.
 
 eliminate_record_type({record, _, N, Ts}, State0=#state{}) ->
@@ -379,7 +389,7 @@ gm({fun_type, Is, O}, TypedArgs, Mappings, Errs) ->
                     {Acc ++ [T1], M1, E1}
                 end, {[], Mappings, Errs}, lists:zip(Is, TypedArgs)),
   FoldF =
-    fun({terl_generic_type, T} = GT, Acc) ->
+    fun({avl_generic_type, T} = GT, Acc) ->
         case dict:find(T, NMappings) of
           {ok, Set} ->
             case gb_sets:to_list(Set) of
@@ -396,7 +406,7 @@ gm({fun_type, Is, O}, TypedArgs, Mappings, Errs) ->
     end,
   {NO, NErrs1} = type_mapfold(O, FoldF, NErrs),
   {{fun_type, NIs, NO}, NMappings, NErrs1};
-gm({terl_generic_type, G}, T, Mappings, Errs) ->
+gm({avl_generic_type, G}, T, Mappings, Errs) ->
   OldSet = case dict:find(G, Mappings) of
              {ok, Set} -> Set;
              error     -> gb_sets:new()
@@ -448,7 +458,7 @@ reduce_list_types({list_type, _} = T, OldSet) ->
   end.
 
 generic_to_undefined(Type) ->
-  Map = fun({terl_generic_type, _}) ->
+  Map = fun({avl_generic_type, _}) ->
             undefined;
            (T) -> T
         end,
@@ -551,20 +561,20 @@ type_map(T, FMap) ->
 extract_user_defined_types(Ts) when is_list(Ts) ->
   lists:flatten([extract_user_defined_types(T) || T <- Ts]);
 extract_user_defined_types(T) ->
-  extract_type_terminals(terl_user_defined, T).
+  extract_type_terminals(avl_user_defined, T).
 
 %%_-----------------------------------------------------------------------------
 
 extract_generic_types(T) ->
-  extract_type_terminals(terl_generic_type, T).
+  extract_type_terminals(avl_generic_type, T).
 
 %%_-----------------------------------------------------------------------------
 
 %% Tags can be one of the following:
-%% - terl_type
-%% - terl_generic_type
-%% - terl_type_ref
-%% - terl_user_defined
+%% - avl_type
+%% - avl_generic_type
+%% - avl_type_ref
+%% - avl_user_defined
 extract_type_terminals(Tag, T) ->
   lists:foldl(
     fun(Tp, Acc) ->
@@ -581,7 +591,7 @@ type_terminals({fun_type, Is, O}) ->
 type_terminals({union_type, Ts}) ->
   lists:flatten([type_terminals(T) || T <- Ts]);
 type_terminals({list_type, nothing} = T) ->
- [T];
+  [T];
 type_terminals({list_type, T}) ->
   type_terminals(T);
 type_terminals({tuple_type, Ts}) ->
@@ -590,15 +600,15 @@ type_terminals({record_type, _, Ts}) ->
   lists:flatten([type_terminals(T) || T <- Ts]);
 type_terminals({type_instance, _, Ts}) ->
   lists:flatten([type_terminals(T) || T <- Ts]);
-type_terminals({terl_type, _} = T) ->
+type_terminals({avl_type, _} = T) ->
   [T];
-type_terminals({terl_generic_type, _} = T) ->
+type_terminals({avl_generic_type, _} = T) ->
   [T];
-type_terminals({terl_type_ref, _, _} = T) ->
+type_terminals({avl_type_ref, _, _} = T) ->
   [T];
-type_terminals({terl_user_defined, _} = T) ->
+type_terminals({avl_user_defined, _} = T) ->
   [T];
-type_terminals({terl_atom_type, _} = T) ->
+type_terminals({avl_atom_type, _} = T) ->
   [T];
 type_terminals({record_type, _} = T) ->
   [T];
@@ -632,3 +642,8 @@ type_alias(?STRING) ->
 type_alias(T) ->
   T.
 
+%%%_* Emacs ====================================================================
+%%% Local Variables:
+%%% allout-layout: t
+%%% erlang-indent-level: 2
+%%% End:

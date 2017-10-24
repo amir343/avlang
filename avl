@@ -1,0 +1,82 @@
+#!/bin/bash
+# Copyright (c) 2016-2017 Amir Moulavi
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -u
+
+SELF=$(dirname $0)
+if [[ $SELF = "." ]]; then
+    ERAMLANG_HOME=$(pwd)
+else
+    ERAMLANG_HOME=$(pwd)/${SELF}
+fi
+ERL=erl
+ERLC=erlc
+EBIN=${ERAMLANG_HOME}/ebin
+ERL_LIBS=${ERAMLANG_HOME}
+
+function erlang_shell {
+    ${ERL} -pa ${EBIN}
+}
+
+function shell {
+    ${ERL} -pa ${EBIN} -user avl_init
+}
+
+function evaluate {
+    [[ -z "$1" ]] && echo "No input given to eval" && exit 1
+
+    ${ERL} \
+        -hidden \
+        -eval $1 -run init stop -noshell
+}
+
+function test {
+    ${ERLC} \
+		    -pa $EBIN -o $EBIN \
+		    ${ERAMLANG_HOME}/test/type_check_SUITE.erl \
+		    ${ERAMLANG_HOME}/test/run_test.erl
+
+    ${ERL} \
+        -pa ${EBIN} \
+		    -noshell \
+		    -s run_test run
+}
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+
+    case $key in
+        erlang-shell)
+            erlang_shell
+            shift
+            ;;
+        shell)
+            shell
+            shift
+            ;;
+        test)
+            test
+            shift
+            ;;
+        eval)
+            shift
+            evaluate $1
+            shift
+            ;;
+        *)
+            # unknown option
+            ;;
+    esac
+done

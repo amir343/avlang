@@ -1,0 +1,61 @@
+%% Copyright (c) 2016-2017 Amir Moulavi
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+
+{application, erm,
+ [{description, "Type-safe Erlang"},
+  {vsn, "0.1"},
+  {modules,[ erl_compile
+           , state_dl
+           , avl_anno
+           , avl_any
+           , avl_atom
+           , avl_bifs
+           , avl_binary
+           , avl_bits
+           , avl_boolean
+           , avl_char
+           , avl_compile
+           , avl_core
+           , avl_epp
+           , avl_eval
+           , avl_expand_records
+           , avl_float
+           , avl_init
+           , avl_integer
+           , avl_internal
+           , avl_lint
+           , avl_list
+           , avl_none
+           , avl_number
+           , avl_pid
+           , avl_port
+           , avl_pp
+           , avl_pre_expand
+           , avl_reference
+           , avl_scan
+           , avl_shell
+           , avl_string
+           , avl_union
+           , type_api
+           , type_check
+           , type_check_compiler_opts
+           , type_err_msg
+           , type_interface
+           , type_internal
+           ]},
+  {registered, []},
+  {applications, [kernel,stdlib,compiler]},
+  {maintainers, ["Amir Moulavi"]},
+  {files, ["src", "priv", "include", "bin"]}
+ ]}.
