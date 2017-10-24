@@ -1488,6 +1488,19 @@ type_of({match, L, {var, _, Var} = V, Type, RHS}, State0) ->
   {_, State5}        = update_local(State4, V, Inferred),
   {Inferred, State5};
 
+type_of({'receive', _, Cls}, State0) ->
+  {_, TCls, State1} =
+    lists:foldl(fun({clause, L1, Es, Gs, Cs} = Cl, {Ind, Ts, S0}) ->
+                    Name =
+                      create_clause_name("receive_clause", Ind, L1, Es, Gs, Cs),
+                    S1       = state_dl:nest_ls(Name, S0),
+                    {TC, S2} = type_check_receive_clause(Cl, S1),
+                    S3       = state_dl:sync_ls(Name, S2),
+                    {Ind + 1, Ts ++ [TC], S3}
+                end, {0, [], State0}, Cls),
+  Tlub = find_lub(TCls),
+  {Tlub, State1};
+
 type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
   {undefined, State}.
@@ -1611,37 +1624,33 @@ eliminate_based_on_clauses(E, Cls, State0) ->
 
 %%_-----------------------------------------------------------------------------
 
-type_check_if_clause({clause, _, _, Gs, Cls}, S0) ->
+type_check_if_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
+  type_check_generic_clause(Clause, State1).
 
-  {TLastCl, State2} =
-    lists:foldl(fun(Expr, {_, SS0}) ->
-                    {T, S1} = type_of(Expr, SS0),
-                    LineNum = element(2, Expr),
-                    update_local(S1, "Expression", LineNum, T)
-                end, {nil, State1}, Cls),
-
-  State3 = state_dl:update_type_in_local_scope(TLastCl, State2),
-  {TLastCl, check_local_scope(State3)}.
-
-%%_-----------------------------------------------------------------------------
-
-type_check_case_clause(TE, {clause, L, Es, Gs, Cls}, S0) ->
+type_check_case_clause(TE, {clause, L, Es, Gs, _Cls} = Clause, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
 
   VTs    = type_internal:eliminate(hd(Es), TE, State1),
   State2 = assert_found_vt(L, State1, VTs),
   State3 = update_local(State2, VTs),
+  type_check_generic_clause(Clause, State3).
 
-  {TLastCl, State4} =
+type_check_receive_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
+  State1 = type_check_clause_guard(Gs, S0),
+  type_check_generic_clause(Clause, State1).
+
+%% Only to be used from other clause_X related functions!
+type_check_generic_clause({clause, _L, _Es, _Gs, Cls}, S0) ->
+  {TLastCl, State1} =
     lists:foldl(fun(Expr, {_, SS0}) ->
                     {T, S1} = type_of(Expr, SS0),
                     LineNum = element(2, Expr),
                     update_local(S1, "Expression", LineNum, T)
-                end, {nil, State3}, Cls),
+                end, {nil, S0}, Cls),
 
-  State5 = state_dl:update_type_in_local_scope(TLastCl, State4),
-  {TLastCl, check_local_scope(State5)}.
+  State2 = state_dl:update_type_in_local_scope(TLastCl, State1),
+  {TLastCl, check_local_scope(State2)}.
 
 %%_-----------------------------------------------------------------------------
 
