@@ -851,10 +851,8 @@ find_the_best_match(TypedArgs, FTypes) ->
   %% the same rank, it's developer's responsibility to declare fun sigs
   %% in correct order
   case SortedScores of
-    [] -> undefined;
-    _ ->
-      {_Rank, BestMatch} = hd(SortedScores),
-      BestMatch
+    []                     -> undefined;
+    [{_Rank, BestMatch}|_] -> BestMatch
   end.
 
 %% Calculate the scores given to two typed argument lists on the degree
@@ -904,17 +902,12 @@ infer_function_clause(NAL, Inferred, Declared, S=#state{}) ->
   case type_internal:sub_type_of(Declared, Inferred) of
     true -> {Declared, S};
     false ->
-      case length(type_internal:extract_type_terminals(undefined, Declared)) of
-        0 ->
-          {N, A, L} = NAL,
-          Err =
-            {L, ?TYPE_MSG,
-             {declared_inferred_fun_type_do_not_match
-             , N, A, Declared, Inferred}},
-          {Inferred, state_dl:update_errors(S, [Err])};
-        _ ->
-          {Inferred, S}
-      end
+      {N, A, L} = NAL,
+      Err =
+        {L, ?TYPE_MSG,
+         {declared_inferred_fun_type_do_not_match
+         , N, A, Declared, Inferred}},
+      {Inferred, state_dl:update_errors(S, [Err])}
   end.
 
 %%_-----------------------------------------------------------------------------
