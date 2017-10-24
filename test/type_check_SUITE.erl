@@ -11,6 +11,7 @@
         , test_record/0
         , test_remote_call/0
         , test_type_syntax/0
+        , test_receive_block/0
        ]).
 
 -include("../src/avl_compiler.hrl").
@@ -25,6 +26,7 @@ all() ->
   , test_record
   , test_remote_call
   , test_type_syntax
+  , test_receive_block
   ].
 
 
@@ -79,6 +81,12 @@ test_remote_call() ->
   CompRec2 = build_compile_rec(FileName2),
   {ok, [{[], [], _}, {[], [], _}]} =
     type_check:modules([CompRec1, CompRec2]).
+
+test_receive_block() ->
+  FileName = "receive_test.avl",
+  CompRec = build_compile_rec(FileName),
+  {ok, [{[], [], _}]} =
+    type_check:modules([CompRec]).
 
 build_compile_rec(FileName) ->
   #compile{ifile = FileName, code = abstract_forms_for_module(FileName)}.
