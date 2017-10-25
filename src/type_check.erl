@@ -197,10 +197,7 @@ type_check_exprs(Exprs, TypeBindings) when is_list(Exprs) ->
   St3 = state_dl:current_module(St2, MS),
   St4 = state_dl:start_ls(LsName, St3),
   St5 = import_type_bindings(St4, TypeBindings),
-  {T, St6} =
-    lists:foldl(fun(Expr, {_, S0}) ->
-                    type_of(Expr, S0)
-                end, {nil, St5}, Exprs),
+  {T, St6} = type_check_expressions(Exprs, St5),
   NTypeBindings = export_type_bindings_from_local_scope(St6),
   Errors = state_dl:errors(St6),
   {T, NTypeBindings, Errors};
@@ -1395,22 +1392,12 @@ type_of({bc, L, E, Qs}, State0) ->
 type_of({block, L, Exprs}, State0) ->
   Name   = {"block", L, length(Exprs)},
   State1 = state_dl:nest_ls(Name, State0),
-  {TLastExpr, State2} =
-    lists:foldl(
-      fun(Expr, S0) ->
-          type_of(Expr, S0)
-      end, State1, Exprs),
-
-  State3 = state_dl:update_type_in_local_scope(TLastExpr, State2),
-  State4 = state_dl:sync_ls(Name, State3),
-  {TLastExpr, State4};
+  {TLastExpr, State2} = type_check_expressions(Exprs, State1),
+  State3 = state_dl:sync_ls(Name, State2),
+  {TLastExpr, State3};
 
 type_of({bin, _,  BinSegments}, State0) ->
-  State1 = lists:foldl(
-             fun(Seg, S0) ->
-                 {_, S1} = type_of(Seg, S0),
-                 S1
-             end, State0, BinSegments),
+  {_, State1} = type_check_expressions(BinSegments, State0),
   {?BINARY, State1};
 
 type_of({bin_element, L, {var, _, Var} = V, _, TSLs}, State0) ->
@@ -1493,6 +1480,36 @@ type_of({'receive', _, Cls}, State0) ->
                 end, {0, [], State0}, Cls),
   Tlub = find_lub(TCls),
   {Tlub, State1};
+
+type_of({'try', L, Es, Cls, CatchCls, AfterCls}, State0) ->
+  LsName =
+    {'try_catch', L, length(Es), length(Cls), length(CatchCls), length(AfterCls)},
+  State1 = state_dl:nest_ls(LsName, State0),
+
+  {TE, State2} = type_check_expressions(Es, State1),
+  State3 = case TE of
+              undefined ->
+                eliminate_based_on_clauses(lists:last(Es), Cls, State2);
+              _ ->
+                State2
+            end,
+  {_, TCls, State4} =
+    lists:foldl(fun({clause, L1, Exps, Gs, Cs} = Cl, {Ind, Ts, S0}) ->
+                    Name =
+                      create_clause_name("try_clause", Ind, L1, Exps, Gs, Cs),
+                    S1       = state_dl:nest_ls(Name, S0),
+                    {TC, S2} = type_check_receive_clause(Cl, S1),
+                    S3       = state_dl:sync_ls(Name, S2),
+                    {Ind + 1, Ts ++ [TC], S3}
+                end, {0, [], State3}, Cls ++ CatchCls),
+
+  AfterLsName = {'after_clause', L, length(AfterCls)},
+  State5 = state_dl:nest_ls(AfterLsName, State4),
+  {TAfterCls, State6} = type_check_expressions(AfterCls, State5),
+  State7 = state_dl:sync_ls(AfterLsName, State6),
+  State8 = state_dl:sync_ls(LsName, State7),
+  Tlub = find_lub(TCls ++ [TAfterCls]),
+  {Tlub, State8};
 
 type_of(T, State) ->
   debug_log(State, "type_of ~p not implemented~n", [T]),
@@ -1623,7 +1640,7 @@ type_check_if_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
 
 type_check_case_clause(TE, {clause, L, Es, Gs, _Cls} = Clause, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
-
+  %% TOOD: this is wrong, Es is multiple expressions, type check all of them!
   VTs    = type_internal:eliminate(hd(Es), TE, State1),
   State2 = assert_found_vt(L, State1, VTs),
   State3 = update_local(State2, VTs),
@@ -1635,15 +1652,21 @@ type_check_receive_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
 
 %% Only to be used from other clause_X related functions!
 type_check_generic_clause({clause, _L, _Es, _Gs, Cls}, S0) ->
-  {TLastCl, State1} =
+  {TLastCl, State1} = type_check_expressions(Cls, S0),
+  {TLastCl, check_local_scope(State1)}.
+
+%%_-----------------------------------------------------------------------------
+
+type_check_expressions(Es, S0) ->
+  {TLastE, State1} =
     lists:foldl(fun(Expr, {_, SS0}) ->
                     {T, S1} = type_of(Expr, SS0),
                     LineNum = element(2, Expr),
                     update_local(S1, "Expression", LineNum, T)
-                end, {nil, S0}, Cls),
+                end, {nil, S0}, Es),
 
-  State2 = state_dl:update_type_in_local_scope(TLastCl, State1),
-  {TLastCl, check_local_scope(State2)}.
+  State2 = state_dl:update_type_in_local_scope(TLastE, State1),
+  {TLastE, State2}.
 
 %%_-----------------------------------------------------------------------------
 

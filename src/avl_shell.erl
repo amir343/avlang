@@ -69,7 +69,7 @@ user_prompt() ->
   case init:get_argument(prompt) of
     {ok, [[]]} -> [""];
     {ok, [P]}  -> P;
-    _          -> ["erm> "]
+    _          -> ["avl> "]
   end.
 
 read_expression(Prompt) ->

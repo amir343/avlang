@@ -1,0 +1,97 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%% Copyright (c) 2016-2017 Amir Moulavi
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+
+-include_lib("kernel/include/file.hrl").
+
+main([]) ->
+  usage();
+main(Args) ->
+  Opts = parse_args(Args),
+  Files = proplists:get_value(avl_files, Opts, []),
+  fix_code_path(),
+  avl_compile:files(Files, Opts).
+
+fix_code_path() ->
+  P0 = code:get_path(),
+  P1 = lists:delete(".", P0),
+  {ok, CWD} = file:get_cwd(),
+  Self = follow_symlink(escript:script_name()),
+  ok = file:set_cwd(CWD),
+  BinDir = filename:dirname(Self),
+  AvlRoot = filename:dirname(BinDir),
+  code:set_path(P1),
+  code:add_path(AvlRoot ++ "/ebin").
+
+parse_args(Args) ->
+  arg_parser(Args, []).
+
+arg_parser([], Opts) ->
+  Opts;
+arg_parser(["-h"|_], _) ->
+  usage(),
+  init:stop();
+arg_parser(["-I", Dir | Rest], Opts) ->
+  arg_parser(Rest, [{i, Dir} | Opts]);
+arg_parser(["-o", Dir | Rest], Opts) ->
+  arg_parser(Rest, [{outdir, Dir} | Opts]);
+arg_parser(["-pa", Dir | Rest], Opts) ->
+  code:add_patha(Dir),
+  arg_parser(Rest, Opts);
+arg_parser(["-pz", Dir | Rest], Opts) ->
+  code:add_pathz(Dir),
+  arg_parser(Rest, Opts);
+arg_parser(["-v" | Rest], Opts) ->
+  arg_parser(Rest, [verbose | Opts]);
+arg_parser(["-Werror" | Rest], Opts) ->
+  arg_parser(Rest, [warnings_as_errors | Opts]);
+arg_parser(Files, Opts) ->
+  [{avl_files, Files} | Opts].
+
+usage() ->
+  Usage =
+    "Usage: avlc [options] file ... \n\n"
+    "Options:\n"
+    "-h               Print this help\n"
+    "-I name          Name of include directory\n"
+    "-o name          Name of output directory\n"
+    "-pa path         Add path to the front of AVL's code path\n"
+    "-pz path         Add path to the end of AVL's code path\n"
+    "-v               Verbose compiler output\n"
+    "-Werror          Convert all warnings into errors\n",
+  io:put_chars(Usage).
+
+follow_symlink(Input) ->
+  ok = file:set_cwd(filename:dirname(Input)),
+  FileName = filename:basename(Input),
+  {ok, Info} = file:read_link_info(FileName),
+  case Info#file_info.type of
+    symlink ->
+      Readlink = os:cmd("readlink " ++ FileName),
+      follow_symlink(remove_new_line(Readlink));
+    _ ->
+      remove_new_line(os:cmd("pwd -P")) ++ "/" ++ FileName
+  end.
+
+remove_new_line(Str) ->
+  case lists:reverse(Str) of
+    [$\n | Rest] ->
+      lists:reverse(Rest);
+    S -> lists:reverse(S)
+  end.
+
+%%% Local Variables:
+%%% erlang-indent-level: 2
+%%% End:
