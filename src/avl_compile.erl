@@ -808,16 +808,21 @@ from_core(St = #compile{ base = Base
                        , warnings = Ws0}) ->
   CoreFile = outfile(Base, "core", Opts),
   BeamFile = objfile(Base, Opts),
-  Options = #options{ outdir = Dir
+  Options = #options{ outdir = proplists:get_value(outdir, Opts, ".")
                     , output_type = beam
                     , outfile = BeamFile
+                    , specific = Opts
+                    , verbose = proplists:get_value(verbose, Opts, false)
                     , cwd = Dir},
-  case compile:compile_core(CoreFile, CoreFile, Options) of
-    ok                -> {ok, St};
-    error             -> {error, St};
-    {error, Errs, Ws} -> {error, St#compile{errors = Errs0 ++ Errs
-                                           , warnings = Ws0 ++ Ws}}
-  end.
+  Ret =
+    case compile:compile_core(CoreFile, CoreFile, Options) of
+      ok                -> {ok, St};
+      error             -> {error, St};
+      {error, Errs, Ws} -> {error, St#compile{errors = Errs0 ++ Errs
+                                             , warnings = Ws0 ++ Ws}}
+    end,
+  file:delete(CoreFile),
+  Ret.
 
 lint_module(St) ->
   case avl_lint:module(St#compile.code,

@@ -22,12 +22,12 @@ module_to_action(Str) ->
 
 #### Why Dialyzer is not sufficient?
 
-Actually Dialyzer is sufficient enough to provide a good basis for your Erlang programs safety. I see two issues with Dialyzer though: 
+Actually Dialyzer is sufficient enough to provide a good basis for your Erlang programs safety. I see two issues with Dialyzer though:
 
 1. I don't like optional typing. It's either that the compiler enforces the type checking and stops you from proceeding or it doesn't do it at all.
 2. Dialyzer lacks expression type declaration which is in many cases really helpful for the compiler/developer to express the intended type for an expression
 
-#### Is ERM type system sound and decidable?
+#### Is AVL type system sound and decidable?
 
 Not really! There is no formal proof and there are lots of things left to complete the type system implementation.
 
