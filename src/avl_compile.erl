@@ -252,7 +252,7 @@ build_state(File, Suffix, St0) ->
   Base = filename:basename(File, Suffix),
   St0#compile{filename=File, dir=Dir, base=Base,
               ifile=erlfile(Dir, Base, Suffix),
-              ofile=objfile(Base, St0)}.
+              ofile=objfile(Base, St0#compile.options)}.
 
 build_run(Opts) ->
   Run0 = case member(time, Opts) of
@@ -807,7 +807,7 @@ from_core(St = #compile{ base = Base
                        , errors = Errs0
                        , warnings = Ws0}) ->
   CoreFile = outfile(Base, "core", Opts),
-  BeamFile = objfile(Base, St),
+  BeamFile = objfile(Base, Opts),
   Options = #options{ outdir = Dir
                     , output_type = beam
                     , outfile = BeamFile
@@ -1169,7 +1169,7 @@ list_errors(_F, []) -> ok.
 iofile(File) when is_atom(File) ->
   iofile(atom_to_list(File));
 iofile(File) ->
-  {filename:dirname(File), filename:basename(File, ".erm")}.
+  {filename:dirname(File), filename:basename(File, ".avl")}.
 
 erlfile(".", Base, Suffix) ->
   Base ++ Suffix;
@@ -1185,8 +1185,8 @@ outfile(Base, Ext, Opts) ->
           end,
   Obase ++ "." ++ Ext.
 
-objfile(Base, St) ->
-  outfile(Base, "beam", St#compile.options).
+objfile(Base, Opts) ->
+  outfile(Base, "beam", Opts).
 
 %% pre_defs(Options)
 %% inc_paths(Options)

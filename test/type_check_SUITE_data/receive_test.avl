@@ -1,0 +1,16 @@
+-module(receive_test).
+
+test :: () -> Boolean.
+test() ->
+  receive
+    true ->
+      return_false();
+    B when is_list(B) ->
+      return_true()
+  end.
+
+return_false() ->
+  false.
+
+return_true() ->
+  true.

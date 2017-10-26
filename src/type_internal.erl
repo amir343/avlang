@@ -148,6 +148,10 @@ lub(?ATOM, {avl_atom_type, _}) ->
   ?ATOM;
 lub({avl_atom_type, _}, ?ATOM) ->
   ?ATOM;
+lub({avl_atom_type, _}, _) ->
+  ?ANY;
+lub(_, {avl_atom_type, _}) ->
+  ?ANY;
 lub(T1, T2) ->
   M = module_of(T1),
   apply(M, lub, [T2]).
@@ -344,6 +348,8 @@ eliminate({atom, _, _}, _, Rs, _) ->
 eliminate({nil, _}, _, Rs, _) ->
   Rs;
 eliminate({bin, _, _}, _, Rs, _) ->
+  Rs;
+eliminate({call, _, _, _}, _, Rs, _) ->
   Rs;
 eliminate(V, T, W, _) ->
   io:format("Investigate this and remove this log line (V: ~p, T: ~p): ~p"

@@ -12,6 +12,7 @@
         , test_remote_call/0
         , test_type_syntax/0
         , test_receive_block/0
+        , test_try_catch/0
        ]).
 
 -include("../src/avl_compiler.hrl").
@@ -27,6 +28,7 @@ all() ->
   , test_remote_call
   , test_type_syntax
   , test_receive_block
+  , test_try_catch
   ].
 
 
@@ -84,6 +86,12 @@ test_remote_call() ->
 
 test_receive_block() ->
   FileName = "receive_test.avl",
+  CompRec = build_compile_rec(FileName),
+  {ok, [{[], [], _}]} =
+    type_check:modules([CompRec]).
+
+test_try_catch() ->
+  FileName = "try_catch_test.avl",
   CompRec = build_compile_rec(FileName),
   {ok, [{[], [], _}]} =
     type_check:modules([CompRec]).

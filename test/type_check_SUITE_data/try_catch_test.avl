@@ -1,0 +1,34 @@
+-module(try_catch_test).
+
+-compile([export_all]).
+
+test_1 :: () -> Any.
+test_1() ->
+  try assert(), assert() of
+      true -> false;
+      A when is_atom(A) -> true
+  catch
+    exit:_ -> exit;
+    exeet:_ -> exit
+  after
+    assert(),
+    no_exit
+  end.
+
+test_2 :: () -> Boolean.
+test_2() ->
+  try
+    case assert() of
+      true -> false;
+      A -> A
+    end
+  catch
+    exit:_ -> true;
+    exeet:_ -> false
+  after
+    assert(),
+    true
+  end.
+
+assert() ->
+  true.
