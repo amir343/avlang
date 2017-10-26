@@ -1640,7 +1640,6 @@ type_check_if_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
 
 type_check_case_clause(TE, {clause, L, Es, Gs, _Cls} = Clause, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
-  %% TOOD: this is wrong, Es is multiple expressions, type check all of them!
   VTs    = type_internal:eliminate(hd(Es), TE, State1),
   State2 = assert_found_vt(L, State1, VTs),
   State3 = update_local(State2, VTs),
