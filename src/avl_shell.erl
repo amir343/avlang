@@ -160,7 +160,7 @@ evaluate_exprs(Exprs0, Bs, TBs) ->
         {value, V, NBs} = avl_eval:exprs(Exprs, Bs, none, none),
         VStr = term_to_string(V),
         {Type, NTBs, Error} = type_check:exprs(Exprs, TBs),
-        %% Skip type intersection of the returned value is a function.
+        %% Skip type intersection of the returned value if it is a function.
         FinalType =
           case re:run(VStr, "#Fun<.*>$") of
             {match, _} -> Type;
@@ -214,7 +214,7 @@ clear() ->
 h() -> help().
 
 help() ->
-  io:put_chars(<<"\nTerl shell built-in functions\n\n"
+  io:put_chars(<<"\nAVL shell built-in functions\n\n"
                  "c(file)        -- compile and load code in <file>\n"
                  "clear()        -- clear REPL output\n"
                  "f(Binding)     -- forget a binding\n"
@@ -279,3 +279,9 @@ generate_banner() ->
      ?GRN("\\____|__  /  \\_/  |____/(____  /|___|  / \\___  / ") ++  "      |\n" ++
      ?GRN("        \\/                   \\/      \\/ /_____/  ") ++ "      |  v0.1" ++ "\n\n"
                 , [])].
+
+%%%_* Emacs ====================================================================
+%%% Local Variables:
+%%% allout-layout: t
+%%% erlang-indent-level: 2
+%%% End:
