@@ -68,6 +68,8 @@ module_of({list_type, _}) ->
   ?LIST_MOD;
 module_of({avl_atom_type, _}) ->
   ?MODULE;
+module_of({tuple_type, _}) ->
+  ?MODULE;
 module_of(W) ->
   io:format("Module_of is not defined for ~p~n", [W]),
   ?MODULE.
@@ -112,8 +114,7 @@ op(Op, T2) ->
 
 %%_-----------------------------------------------------------------------------
 
-lub(T) ->
-  io:format("No lub defined to ~p~n", [T]),
+lub(_T) ->
   ?ANY.
 
 lub(T, T) ->
@@ -132,6 +133,15 @@ lub({union_type, _} = T1, {union_type, _} = T2) ->
   case type_equivalent(T1, T2) of
     true  -> T1;
     false -> ?ANY
+  end;
+lub({tuple_type, T1}, {tuple_type, T2}) ->
+  case length(T1) =:= length(T2) of
+    true ->
+      {tuple_type, lists:map(fun({A, B}) ->
+                                 lub(A, B)
+                             end, lists:zip(T1, T2))};
+    false ->
+      ?ANY
   end;
 lub({union_type, _}, _) ->
   ?ANY;
@@ -152,8 +162,16 @@ lub({avl_atom_type, _}, _) ->
   ?ANY;
 lub(_, {avl_atom_type, _}) ->
   ?ANY;
+lub(?ANY, _) ->
+  ?ANY;
+lub(_, ?ANY) ->
+  ?ANY;
 lub(T1, T2) ->
   M = module_of(T1),
+  case M =:= ?MODULE of
+    true -> io:format("No lub defined for ~p and ~p~n", [T1, T2]);
+    false -> ok
+  end,
   apply(M, lub, [T2]).
 
 %%_-----------------------------------------------------------------------------
@@ -304,6 +322,10 @@ sub_type_of(T1, T2) ->
 %% Type intersection for two tpes T1 and T2 is defined as T1 if
 %% T1 is subtype of T2 and T2 if T2 is subtype of T1. Otherwise
 %% the intersection would be type nothing.
+type_intersection(undefined, T) ->
+  T;
+type_intersection(T, undefined) ->
+  T;
 type_intersection(T1, T2) ->
   case {sub_type_of(T1, T2), sub_type_of(T2, T1)} of
     {true, _}      -> T1;
