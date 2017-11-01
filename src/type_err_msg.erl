@@ -80,6 +80,12 @@ format_error0({fun_sig_clause_arity_not_match, N}) ->
     "Function signature ~w has clauses with different arity.",
     [N]);
 
+format_error0({case_clause_type_does_not_match, TCc, TE, L}) ->
+  io_lib:format(
+    "Case clause on line ~p has non-matching type, expected '~s' but got '~s'.",
+    [L, pp_type(TE), pp_type(TCc)]
+   );
+
 format_error0({non_matching_fun_args, FT1, FT2}) ->
   io_lib:format(
     "Function '~s' has different arity than function '~s' when trying to "
