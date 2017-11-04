@@ -267,6 +267,8 @@ sub_type_of(undefined, undefined) ->
   false;
 sub_type_of(undefined, _) ->
   true;
+sub_type_of({list_type, nothing}, {list_type, _}) ->
+  true;
 sub_type_of({list_type, T1}, {list_type, T2}) ->
   sub_type_of(T1, T2);
 sub_type_of([_ | _] = T1, [_ | _] = T2) ->
