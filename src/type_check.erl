@@ -1639,11 +1639,13 @@ type_check_if_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
   type_check_generic_clause(Clause, State1).
 
 type_check_case_clause(TE, {clause, L, Es, Gs, _Cls} = Clause, S0) ->
-  State1 = type_check_clause_guard(Gs, S0),
-  VTs    = type_internal:eliminate(hd(Es), TE, State1),
-  State2 = assert_found_vt(L, State1, VTs),
-  State3 = update_local(State2, VTs),
-  type_check_generic_clause(Clause, State3).
+  State1        = type_check_clause_guard(Gs, S0),
+  VTs           = type_internal:eliminate(hd(Es), TE, State1),
+  State2        = assert_found_vt(L, State1, VTs),
+  State3        = update_local(State2, VTs),
+  {TCc, State4} = type_of(hd(Es), State3),
+  State5        = assert_case_clause_type(TCc, TE, L, State4),
+  type_check_generic_clause(Clause, State5).
 
 type_check_receive_clause({clause, _L, _Es, Gs, _Cls} = Clause, S0) ->
   State1 = type_check_clause_guard(Gs, S0),
@@ -1834,6 +1836,18 @@ assert_found_vt(L, S=#state{}, VTs) ->
                     end
                 end, [], VTs),
   state_dl:update_errors(S, Errs).
+
+%%_-----------------------------------------------------------------------------
+
+assert_case_clause_type(TCc, TE, L, State) ->
+  case type_internal:sub_type_of(TCc, TE) of
+    true -> State;
+    false ->
+      Err =
+        {L, ?TYPE_MSG,
+         {case_clause_type_does_not_match, TCc, TE, L}},
+      state_dl:update_errors(State, [Err])
+  end.
 
 %%_-----------------------------------------------------------------------------
 

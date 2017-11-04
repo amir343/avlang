@@ -312,6 +312,12 @@ sub_type_of({avl_atom_type, true}, ?BOOLEAN) ->
   true;
 sub_type_of({avl_atom_type, false}, ?BOOLEAN) ->
   true;
+sub_type_of(?BOOLEAN, {avl_atom_type, true}) ->
+  true;
+sub_type_of(?BOOLEAN, {avl_atom_type, false}) ->
+  true;
+sub_type_of(?BOOLEAN, ?ATOM) ->
+  true;
 sub_type_of(T, T) ->
   true;
 sub_type_of(T1, T2) ->
