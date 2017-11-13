@@ -1122,12 +1122,13 @@ type_of({var, _L, '_'}, State0) ->
   {?ANY, State0};
 
 type_of({op, L, Op, LHS, RHS}, State0) ->
-  {TL0, State1} = type_of(LHS, State0),
-  {TR0, State2} = type_of(RHS, State1),
-  Res           = dispatch(TL0, Op, TR0),
-  {TL1, State3} = infer_from_op(Res, LHS, TL0, State2),
-  {TR1, State4} = infer_from_op(Res, RHS, TR0, State3),
-  assert_operator_validity(Res, Op, TL1, TR1, L, State4);
+  {TL0, State1}      = type_of(LHS, State0),
+  {TR0, State2}      = type_of(RHS, State1),
+  {TL1, TR1}         = infer_from_operands(TL0, TR0, Op),
+  Res                = dispatch(TL1, Op, TR1),
+  {TL2, State3}      = infer_from_op(Res, LHS, TL0, State2),
+  {TR2, State4}      = infer_from_op(Res, RHS, TR0, State3),
+  assert_operator_validity(Res, Op, TL2, TR2, L, State4);
 
 type_of({op, L, Op, RHS}, State0) ->
   {TR, State1} = type_of(RHS, State0),
@@ -1527,6 +1528,14 @@ infer_arg_type_from_call(Args, TypedArgs, FType, State0) ->
 
 %%_-----------------------------------------------------------------------------
 
+infer_from_operands(undefined, undefined, Op) ->
+  T = type_internal:operand_type(Op),
+  {T, T};
+infer_from_operands(TL0, TR0, _Op) ->
+  {TL0, TR0}.
+
+%%_-----------------------------------------------------------------------------
+
 %% For any adjacent types T1 and T2 in two argument lists, convert T1 to T2
 %% if T1 is [] and T2 is [A].
 reduce_fun_sigs([_] = FTypes) ->
@@ -1812,7 +1821,7 @@ unwrap_list(T, L) ->
 
 %%_-----------------------------------------------------------------------------
 
-%% Tries to infer the type for a variable based on operator application.
+%% Tries to infer the type for a operands based on operator application.
 infer_from_op(?BOOLEAN, _, Type, State) ->
   {Type, State};
 infer_from_op(Res, {var, _, _} = Var, undefined, State) ->

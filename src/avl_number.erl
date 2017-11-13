@@ -16,17 +16,105 @@
 
 -behaviour(type_interface).
 
+-export([ op/1
+        , op/2
+        , lub/1
+        ]).
+
 -export([ abs_form/0
         , lub/0
         , name/0
         ]).
 
+-define(SELF, ?NUMBER).
 -include("type_macros.hrl").
 
 abs_form() -> {avl_type, 'Number'}.
 lub()      -> 'Any'.
 name()     -> 'Number'.
 
+op('/', ?SELF)     -> ?SELF;
+op('+', ?SELF)     -> ?SELF;
+op('-', ?SELF)     -> ?SELF;
+op('*', ?SELF)     -> ?SELF;
+
+op('band', ?SELF)  -> ?SELF;
+op('bor', ?SELF)   -> ?SELF;
+op('bxor', ?SELF)  -> ?SELF;
+op('bsl', ?SELF)   -> ?SELF;
+op('bsr', ?SELF)   -> ?SELF;
+op('bnot', ?SELF)  -> ?SELF;
+
+op('div', ?SELF)   -> ?SELF;
+op('div', ?FLOAT)  -> ?INVALID;
+
+op('rem', ?SELF)   -> ?SELF;
+op('rem', ?FLOAT)  -> ?INVALID;
+
+op(Op, {union_type, Ts}) ->
+  [op(Op, T) || T <- Ts];
+
+op('/', undefined)   -> ?SELF;
+op('+', undefined)   -> ?SELF;
+op('-', undefined)   -> ?SELF;
+op('*', undefined)   -> ?SELF;
+
+op('band', undefined) -> ?SELF;
+op('bor', undefined)  -> ?SELF;
+op('bxor', undefined) -> ?SELF;
+op('bsl', undefined)  -> ?SELF;
+op('bsr', undefined)  -> ?SELF;
+op('bnot', undefined) -> ?SELF;
+
+op('div', undefined)  -> ?SELF;
+op('rem', undefined)  -> ?SELF;
+
+op(_, undefined)     -> ?UNDEFINED;
+
+op('+', ?FLOAT)       -> ?FLOAT;
+op('-', ?FLOAT)       -> ?FLOAT;
+op('/', ?FLOAT)       -> ?FLOAT;
+op('*', ?FLOAT)       -> ?FLOAT;
+
+op('+', ?INTEGER)       -> ?INTEGER;
+op('-', ?INTEGER)       -> ?INTEGER;
+op('/', ?INTEGER)       -> ?INTEGER;
+op('*', ?INTEGER)       -> ?INTEGER;
+
+op('==', _)          -> ?BOOLEAN;
+op('=:=', _)         -> ?BOOLEAN;
+
+op('/=', _)          -> ?BOOLEAN;
+op('=/=', _)         -> ?BOOLEAN;
+
+op('>=', ?SELF)       -> ?BOOLEAN;
+op('>=', ?FLOAT)      -> ?BOOLEAN;
+op('>=', ?INTEGER)    -> ?BOOLEAN;
+
+op('=<', ?SELF)       -> ?BOOLEAN;
+op('=<', ?FLOAT)      -> ?BOOLEAN;
+op('=<', ?INTEGER)     -> ?BOOLEAN;
+
+op('<', ?SELF)        -> ?BOOLEAN;
+op('<', ?FLOAT)       -> ?BOOLEAN;
+op('<', ?INTEGER)     -> ?BOOLEAN;
+
+op('>', ?SELF)        -> ?BOOLEAN;
+op('>', ?FLOAT)       -> ?BOOLEAN;
+op('>', ?INTEGER)     -> ?BOOLEAN;
+
+op(_, _)              -> ?INVALID.
+
+%%-- unary ---------------------------------------
+
+op('+')              -> ?SELF;
+op('-')              -> ?SELF;
+op(_)                -> ?INVALID.
+
+%%-- least common supertype ----------------------
+
+lub(?SELF)        -> ?SELF;
+lub(_)            -> ?ANY.
 
 
 
