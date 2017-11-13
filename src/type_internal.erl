@@ -323,6 +323,10 @@ sub_type_of(?BOOLEAN, {avl_atom_type, false}) ->
   true;
 sub_type_of(?BOOLEAN, ?ATOM) ->
   true;
+sub_type_of(?INTEGER, ?NUMBER) ->
+  true;
+sub_type_of(?FLOAT, ?NUMBER) ->
+  true;
 sub_type_of(T, T) ->
   true;
 sub_type_of(T1, T2) ->
