@@ -160,3 +160,8 @@ process_test() ->
 fun_test :: Integer, Integer, Integer -> Integer.
 fun_test(A, B, C) ->
   A + B + C.
+
+test_op :: (Number, Number, Number, Number) ->
+         Number.
+test_op(A, B, C, D) ->
+  A + B + C + D.

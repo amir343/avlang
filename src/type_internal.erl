@@ -39,6 +39,7 @@
         , type_tag/1
         , type_terminals/1
         , var_terminals/1
+        , operand_type/1
         ]).
 
 %%------------------------------------------------------------------------------
@@ -62,6 +63,8 @@ module_of(?BOOLEAN) ->
   ?BOOLEAN_MOD;
 module_of(?PID) ->
   ?PID_MOD;
+module_of(?NUMBER) ->
+  ?NUMBER_MOD;
 module_of({union_type, _}) ->
   ?UNION_MOD;
 module_of({list_type, _}) ->
@@ -319,6 +322,10 @@ sub_type_of(?BOOLEAN, {avl_atom_type, true}) ->
 sub_type_of(?BOOLEAN, {avl_atom_type, false}) ->
   true;
 sub_type_of(?BOOLEAN, ?ATOM) ->
+  true;
+sub_type_of(?INTEGER, ?NUMBER) ->
+  true;
+sub_type_of(?FLOAT, ?NUMBER) ->
   true;
 sub_type_of(T, T) ->
   true;
@@ -678,8 +685,34 @@ type_alias(?STRING) ->
 type_alias(T) ->
   T.
 
+%%_-----------------------------------------------------------------------------
+
+operand_type('/')     -> ?NUMBER;
+operand_type('+')     -> ?NUMBER;
+operand_type('*')     -> ?NUMBER;
+operand_type('-')     -> ?NUMBER;
+operand_type('band')  -> ?NUMBER;
+operand_type('bor')   -> ?NUMBER;
+operand_type('bxor')  -> ?NUMBER;
+operand_type('bsl')   -> ?NUMBER;
+operand_type('bsr')   -> ?NUMBER;
+operand_type('bnot')  -> ?NUMBER;
+operand_type('div')   -> ?NUMBER;
+operand_type('rem')   -> ?NUMBER;
+operand_type(_)       -> undefined.
+
 %%%_* Emacs ====================================================================
 %%% Local Variables:
 %%% allout-layout: t
 %%% erlang-indent-level: 2
 %%% End:
+
+
+
+
+
+
+
+
+
+

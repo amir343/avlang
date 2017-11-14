@@ -19,6 +19,7 @@
 -define(CHAR,      {avl_type, 'Char'}).
 -define(FLOAT,     {avl_type, 'Float'}).
 -define(INTEGER,   {avl_type, 'Integer'}).
+-define(NUMBER,    {avl_type, 'Number'}).
 -define(PID,       {avl_type, 'Pid'}).
 -define(TERM,      {avl_type, 'Term'}).
 -define(STRING,    {avl_type, 'String'}).
@@ -36,3 +37,4 @@
 -define(PID_MOD,     avl_pid).
 -define(STRING_MOD,  avl_string).
 -define(UNION_MOD,   avl_union).
+-define(NUMBER_MOD,  avl_number).
