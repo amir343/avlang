@@ -44,6 +44,7 @@ $(EBIN)/%.beam: $(SRC)/%.erl
 	$(ERLC) -I $(INCLUDE) -o $(EBIN) $(ERL_COMPILE_FLAGS) $<
 
 $(EBIN)/$(APP_DEF): $(SRC)/$(APP_DEF).src
+	@mkdir -p $(EBIN)
 	cp $(SRC)/$(APP_DEF).src $(EBIN)/$(APP_DEF)
 
 %.erl: %.yrl
