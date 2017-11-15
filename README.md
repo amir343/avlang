@@ -42,7 +42,7 @@ You can pass any `make` arguments to this script.
 Avlang comes with a REPL:
 
 ```
-/avl shell
+./avl shell
 ```
 
 You can play around and test different stuffs in the shell. 
