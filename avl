@@ -17,14 +17,14 @@ set -u
 
 SELF=$(dirname $0)
 if [[ $SELF = "." ]]; then
-    ERAMLANG_HOME=$(pwd)
+    AVLLANG_HOME=$(pwd)
 else
-    ERAMLANG_HOME=$(pwd)/${SELF}
+    AVLLANG_HOME=$(pwd)/${SELF}
 fi
 ERL=erl
 ERLC=erlc
-EBIN=${ERAMLANG_HOME}/ebin
-ERL_LIBS=${ERAMLANG_HOME}
+EBIN=${AVLLANG_HOME}/ebin
+ERL_LIBS=${AVLLANG_HOME}
 
 function erlang_shell {
     ${ERL} -pa ${EBIN}
@@ -45,8 +45,8 @@ function evaluate {
 function test {
     ${ERLC} \
 		    -pa $EBIN -o $EBIN \
-		    ${ERAMLANG_HOME}/test/type_check_SUITE.erl \
-		    ${ERAMLANG_HOME}/test/run_test.erl
+		    ${AVLLANG_HOME}/test/type_check_SUITE.erl \
+		    ${AVLLANG_HOME}/test/run_test.erl
 
     ${ERL} \
         -pa ${EBIN} \
