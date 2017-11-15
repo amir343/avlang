@@ -15,7 +15,7 @@
 -module(state_dl).
 
 -include("type_checker_state.hrl").
-
+-include("avl_compiler.hrl").
 
 -compile([export_all]).
 
@@ -234,6 +234,13 @@ warnings(State=#state{current_module = CM}, Ws) ->
 
 compile_record(#module_scope{compile_record = CR}) ->
   CR.
+
+compile_record_outdir(#module_scope{compile_record = CR}) ->
+  CR#compile.dir.
+
+extract_public_types_info(#module_scope{global = G, exports = Exports}) ->
+  Version = "0.1",
+  {Version, {G, Exports}}.
 
 %%*.---------------------------------------------------------------------------
 

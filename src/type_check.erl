@@ -232,9 +232,21 @@ generate_type_check_output(State=#state{}) ->
                 end, {0, []}, dict:to_list(ModuleScopes)),
 
   case NErrors of
-    0 -> {ok, Result};
-    _ -> {error, Result}
+    0 ->
+      generate_type_data_file(State),
+      {ok, Result};
+    _ ->
+      {error, Result}
   end.
+
+generate_type_data_file(State=#state{}) ->
+  lists:foreach(fun({M, MS}) ->
+                    Outdir = state_dl:compile_record_outdir(MS),
+                    TypeData = state_dl:extract_public_types_info(MS),
+                    %% atl: Avlang Type Lookup
+                    FileName = filename:join(Outdir, atom_to_list(M) ++ ".atl"),
+                    file:write_file(FileName, term_to_binary(TypeData))
+                end, dict:to_list(state_dl:module_scopes(State))).
 
 count_undefined(S) ->
   count_undefined_local_scopes(S)
